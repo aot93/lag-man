@@ -62,7 +62,7 @@ def cmd_analyse(args: argparse.Namespace) -> int:
                   for title, s in pick_review(samples)]
     paths = write_outputs(out, samples, summary, info, args.video.name, review)
     c = summary.counts
-    mean = f"{summary.mean_ms:.1f} ms" if summary.mean_ms is not None else "–"
+    mean = f"{summary.mean_ms:.1f} ms" if summary.mean_ms is not None else "n/a"
     print(f"{summary.n} good samples of {summary.frames}: mean {mean}, "
           f"min {summary.min_ms} ms, max {summary.max_ms} ms; flagged {c['transition']} "
           f"mid-change, {c['unreadable']} unreadable, {c['suspect']} suspect")
