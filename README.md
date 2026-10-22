@@ -11,7 +11,7 @@ See [SPEC.md](SPEC.md) for the full scope and build phases.
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Generator core: clock, code strip, frame-locked timing, dropped-frame logging | Done, awaiting Pi 5 hardware checks |
-| 2 | Web control front end, presets, slate | Next |
+| 2 | Web control front end, presets, slate | Done |
 | 3 | Image analysis extension | Planned |
 | 4 | Photodiode extension (Pi GPIO), then Pico timer and Lumix control | Planned |
 
@@ -27,11 +27,43 @@ uv run camlag-generator --windowed 1280x720 --run             # window, for deve
 uv run camlag-generator --snapshot frame.png --count 123456   # render one frame, no display
 ```
 
-Keys: Space start/stop, R reset, Esc or Q quit. Settings can also come from a JSON file
-(`--config`), in the same format as the presets the web UI will save.
+Keys: Space start/stop a run, R reset, Esc or Q quit. Settings can also come from a JSON
+file (`--config`), in the same format as the presets the web UI saves.
 
-Each run writes a JSON Lines log to `runs/` with the settings, slate, start count and every
-dropped or repeated frame. On exit the generator prints a frame summary.
+Each run (Start to Stop) writes a JSON Lines log to `runs/` with the settings, slate, start
+count, every configuration change and every dropped or repeated frame. Run numbers persist
+in `runs/state.json`.
+
+## Web control
+
+The generator serves its control page on port 8080: open `http://<generator>:8080/` from any
+device on the network. It works with no internet (fonts are bundled). Set a shared password
+with `--password` or `CAMLAG_PASSWORD`; the browser asks for it, and any user name works.
+
+From the page: start, stop and reset; rate set and time code rate; start value; clock size,
+position and colours; strip and milliseconds; slate fields, position, size and mode (off,
+before each run, or always); the sync patch; presets (save, load, export, import); run logs;
+live status with a dropped-frame warning to acknowledge; and a live preview drawn from the
+same frame data the generator renders.
+
+To work on the UI without a display, run headless (frames are paced by a timer, so timing
+is simulated and the frame monitor is not exercised):
+
+```sh
+uv run camlag-generator --headless 1920x1080 --port 8080
+```
+
+Every control is also an HTTP JSON API, so runs can be scripted:
+
+```sh
+curl -X PUT  localhost:8080/api/config -d '{"tc_rate": 50, "slate": {"mode": "pre_roll"}}'
+curl -X POST localhost:8080/api/start
+curl         localhost:8080/api/status
+curl -X POST localhost:8080/api/stop
+```
+
+The full route list is in `src/camlag/web/server.py`. The API is plain HTTP with polling
+rather than WebSocket, which keeps the server in the standard library.
 
 ## How the timing works
 
@@ -60,4 +92,5 @@ uv run ruff check .
 The code strip format is in [docs/strip-format.md](docs/strip-format.md). UI styling follows
 [docs/brand.md](docs/brand.md) and [design/tokens.css](design/tokens.css).
 
-IBM Plex Mono is included under the SIL Open Font License (`src/camlag/generator/fonts/OFL.txt`).
+IBM Plex Mono, Raleway and Roboto are included under the SIL Open Font License
+(`src/camlag/generator/fonts/OFL.txt`, `src/camlag/web/static/fonts/LICENSE-*.txt`).

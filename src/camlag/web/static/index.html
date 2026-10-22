@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cam-lag</title>
+<link rel="icon" href="vyv-logo.png">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <div class="brand">
+      <img class="logo" src="vyv-logo.png" alt="VYV">
+      <h1>cam-lag</h1>
+      <span class="tag">Latency test generator</span>
+    </div>
+    <nav>
+      <span class="pill" id="conn">Connecting</span>
+      <button class="btn" id="theme" type="button" title="Theme">Theme: auto</button>
+    </nav>
+  </header>
+
+  <div class="alert warn" id="frame-alert" role="status" hidden>
+    <p><strong id="frame-alert-title"></strong> <span id="frame-alert-detail"></span></p>
+    <div class="row"><button class="btn small" id="ack" type="button">Acknowledge</button></div>
+  </div>
+  <div class="alert" id="error" role="alert" hidden><p id="error-text"></p></div>
+  <div class="alert warn" id="layout-alert" hidden><p id="layout-alert-text"></p></div>
+
+  <section class="keyfacts" aria-label="Status">
+    <div class="kf"><div class="n mono" id="kf-tc">--:--:--:--.---</div><div class="l">Time code · count <span class="mono" id="kf-count">0</span></div></div>
+    <div class="kf"><div class="n" id="kf-state">Idle</div><div class="l" id="kf-run">Next run 1</div></div>
+    <div class="kf"><div class="n" id="kf-hz">-- Hz</div><div class="l" id="kf-hz-l">Measured refresh</div></div>
+    <div class="kf"><div class="n" id="kf-frames">0</div><div class="l" id="kf-frames-l">Repeated refreshes · 0 early presents</div></div>
+  </section>
+
+  <div class="layout">
+    <div class="col">
+      <section class="card">
+        <h2 class="section">Run</h2>
+        <div class="toolbar">
+          <button class="btn primary" id="start" type="button">Start</button>
+          <button class="btn" id="stop" type="button">Stop</button>
+          <button class="btn" id="reset" type="button">Reset clock</button>
+        </div>
+        <div class="sub">Rate set</div>
+        <div class="seg" id="rate-set" role="group" aria-label="Rate set">
+          <button class="btn" type="button" value="50">50Hz regions · 100Hz</button>
+          <button class="btn" type="button" value="60">60Hz regions · 120Hz</button>
+        </div>
+        <div class="sub">Time code rate</div>
+        <div class="seg" id="tc-rate" role="group" aria-label="Time code rate"></div>
+        <div class="sub">Start value</div>
+        <div class="form">
+          <label>Start from
+            <select data-path="start_mode">
+              <option value="zero">Zero</option>
+              <option value="value">Set value</option>
+              <option value="time_of_day">Time of day</option>
+            </select>
+          </label>
+          <label>Value (HH:MM:SS:FF)
+            <span class="text-edit"><input id="start-value" class="mono" placeholder="00:00:00:00" spellcheck="false"><button class="btn small" id="set-start" type="button">Set</button></span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Live preview</h2>
+        <div class="preview-box"><canvas id="preview" width="960" height="540" aria-label="Preview of the generator output"></canvas></div>
+        <p class="hint" id="preview-hint">Drawn from the same frame data the generator renders.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Recent frame warnings</h2>
+        <div class="tablewrap">
+          <table class="data">
+            <thead><tr><th>Time code</th><th>Kind</th><th class="r">Extra refreshes</th><th class="r">Gap ms</th></tr></thead>
+            <tbody id="events"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="events-empty">No dropped or repeated frames.</p>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <h2 class="section">Clock</h2>
+        <div class="form">
+          <label>Digit size <output data-for="clock.size"></output><input type="range" min="0.04" max="0.4" step="0.01" data-path="clock.size"></label>
+          <label>Horizontal position <output data-for="clock.cx"></output><input type="range" min="0" max="1" step="0.01" data-path="clock.cx"></label>
+          <label>Vertical position <output data-for="clock.cy"></output><input type="range" min="0" max="1" step="0.01" data-path="clock.cy"></label>
+          <label>Digits colour<input type="color" data-path="clock.fg"></label>
+          <label>Background<input type="color" data-path="clock.bg"></label>
+        </div>
+        <div class="checks">
+          <label><input type="checkbox" data-path="clock.show_ms"> Milliseconds</label>
+          <label><input type="checkbox" data-path="clock.strip"> Code strip</label>
+        </div>
+        <p class="hint">The code strip is always pure black and white; the analysis reads it rather than the digits.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Slate</h2>
+        <div class="seg" data-path="slate.mode" role="group" aria-label="Slate mode">
+          <button class="btn" type="button" value="off">Off</button>
+          <button class="btn" type="button" value="pre_roll">Before run</button>
+          <button class="btn" type="button" value="always">Always</button>
+        </div>
+        <div class="form mt-s">
+          <label>Position
+            <select data-path="slate.position">
+              <option value="top">Top</option><option value="bottom">Bottom</option>
+              <option value="top-left">Top left</option><option value="top-right">Top right</option>
+              <option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option>
+            </select>
+          </label>
+          <label>Text size <output data-for="slate.size"></output><input type="range" min="0.01" max="0.1" step="0.005" data-path="slate.size"></label>
+          <label>Show before run (s)<input type="number" min="0" max="600" step="1" data-path="slate.pre_roll_s"></label>
+        </div>
+        <table class="data fields">
+          <thead><tr><th>Show</th><th>Field</th><th>Value</th></tr></thead>
+          <tbody id="slate-fields"></tbody>
+        </table>
+        <p class="hint">Blank run number and date fill in automatically. The clock settings line is always shown.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Sync patch</h2>
+        <div class="seg" data-path="patch.mode" role="group" aria-label="Sync patch">
+          <button class="btn" type="button" value="off">Off</button>
+          <button class="btn" type="button" value="white">White</button>
+          <button class="btn" type="button" value="black">Black</button>
+        </div>
+        <div class="form mt-s">
+          <label>Left <output data-for="patch.x"></output><input type="range" min="0" max="1" step="0.01" data-path="patch.x"></label>
+          <label>Top <output data-for="patch.y"></output><input type="range" min="0" max="1" step="0.01" data-path="patch.y"></label>
+          <label>Width <output data-for="patch.w"></output><input type="range" min="0.01" max="1" step="0.01" data-path="patch.w"></label>
+          <label>Height <output data-for="patch.h"></output><input type="range" min="0.01" max="1" step="0.01" data-path="patch.h"></label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Presets</h2>
+        <div class="text-edit">
+          <input id="preset-name" placeholder="Camera A 25fps" maxlength="64" aria-label="Preset name">
+          <button class="btn primary" id="preset-save" type="button">Save current</button>
+        </div>
+        <ul class="list" id="presets"></ul>
+        <p class="empty" id="presets-empty">No presets saved.</p>
+        <div class="row">
+          <label class="btn" for="preset-import">Import JSON…</label>
+          <input type="file" id="preset-import" accept="application/json,.json" hidden>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Run logs</h2>
+        <div class="tablewrap">
+          <table class="data">
+            <thead><tr><th>Run</th><th>Started</th><th>Clock</th><th>Camera</th><th></th></tr></thead>
+            <tbody id="runs"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="runs-empty">No runs yet.</p>
+      </section>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>Every control is also available over the HTTP API at <code>/api</code>.</span>
+    <span id="foot-display"></span>
+  </footer>
+</div>
+</body>
+</html>

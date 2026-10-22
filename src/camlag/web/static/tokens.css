@@ -1,0 +1,93 @@
+/*
+ * cam-lag design tokens (copied from EDID Studio). The single source of colour and type for the
+ * web UI and generated HTML reports. See docs/brand.md for usage.
+ *
+ * Fonts (Google Fonts): Raleway 600/700/800, Roboto 400/500/700,
+ * IBM Plex Mono 400/500. The UI must work offline, so the web build
+ * self-hosts these files rather than linking to Google at runtime.
+ */
+
+:root {
+  --font-display: Raleway, Roboto, system-ui, sans-serif;
+  --font-body: Roboto, system-ui, "Segoe UI", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  --radius: 9px;
+  --radius-sm: 5px;
+  --radius-pill: 99px;
+
+  /* Light theme */
+  --bg: #f5f5f8;
+  --surface: #ffffff;
+  --raised: #fafafd;
+  --ink: #05062b;
+  --ink2: #454668;
+  --muted: #84859f;
+  --line: #e4e4ed;
+  --border: rgba(5, 6, 43, 0.11);
+  --accent: #ee2737;
+  --accent2: #ff6a39;
+  --good: #0f7a52;
+
+  /* Series colours, in this order, for charts and link meters */
+  --s1: #ee2737;
+  --s2: #2e7de0;
+  --s3: #22a06b;
+  --s4: #8a63e8;
+
+  --accent-gradient: linear-gradient(90deg, var(--accent), var(--accent2));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05062b;
+    --surface: #0d0e3d;
+    --raised: #141553;
+    --ink: #ffffff;
+    --ink2: #b7b8ca;
+    --muted: #8081a0;
+    --line: #1e1f56;
+    --border: rgba(255, 255, 255, 0.13);
+    --accent: #ff4453;
+    --accent2: #ff8256;
+    --good: #35c98c;
+    --s1: #f2404b;
+    --s2: #3d8ce8;
+    --s3: #19b077;
+    --s4: #8a6ce0;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #05062b;
+  --surface: #0d0e3d;
+  --raised: #141553;
+  --ink: #ffffff;
+  --ink2: #b7b8ca;
+  --muted: #8081a0;
+  --line: #1e1f56;
+  --border: rgba(255, 255, 255, 0.13);
+  --accent: #ff4453;
+  --accent2: #ff8256;
+  --good: #35c98c;
+  --s1: #f2404b;
+  --s2: #3d8ce8;
+  --s3: #19b077;
+  --s4: #8a6ce0;
+}
+
+@media print {
+  :root {
+    --bg: #fff;
+    --surface: #fff;
+    --raised: #fff;
+    --ink: #000;
+    --ink2: #222;
+    --muted: #555;
+    --line: #ccc;
+    --border: #bbb;
+    --accent: #c4202f;
+    --accent2: #c4202f;
+    --good: #0a6b46;
+  }
+}

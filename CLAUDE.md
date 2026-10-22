@@ -11,7 +11,11 @@
   (Pi 5 refresh rates, vsync blocking, GPIO timing) is marked TODO(verify) in code.
 - Commands: `uv sync --extra generator`, `uv run pytest`, `uv run ruff check .`,
   `uv run camlag-generator --help`; render a frame without a display with
-  `uv run camlag-generator --snapshot out.png`.
+  `uv run camlag-generator --snapshot out.png`; web UI without a display:
+  `uv run camlag-generator --headless 1920x1080`.
+- The web server and UI use only the standard library and plain JS (no build step). The
+  render loop owns all generator state: other threads change it only via `Engine.submit`.
+- `src/camlag/web/static/tokens.css` is a copy of `design/tokens.css`; a test keeps them equal.
 - Ask before adding a runtime dependency.
 - Web UI and any generated HTML follow `docs/brand.md`; colours and type come from
   `design/tokens.css`, never hard-coded. The UI must work with no internet.
