@@ -69,6 +69,29 @@ def _strip_quad(lay: layout_mod.Layout, corners: np.ndarray) -> Quad:
     return Quad(tuple((float(x), float(y)) for x, y in out))  # type: ignore[arg-type]
 
 
+def _open_writer(out: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
+    """Open a grey video writer, with errors that say what went wrong.
+
+    OpenCV only reports that it failed, so check the folder first: the common cause is
+    running from a folder the user cannot write to (PowerShell as administrator starts in
+    C:\\Windows\\System32).
+    """
+    out = out.resolve()
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("wb"):
+            pass
+    except OSError as e:
+        raise OSError(f"cannot create {out}: {e.strerror or e}. Choose a folder you can write "
+                      f"to, for example your Documents folder.") from None
+    for codec in ("mp4v", "avc1", "MJPG"):
+        writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*codec), fps, size, False)
+        if writer.isOpened():
+            return writer
+    raise OSError(f"OpenCV could not encode video to {out} with any of mp4v, avc1 or MJPG; "
+                  f"try a .avi file name")
+
+
 def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
          latency_ticks: Callable[[int], int] | int = 8, start_count: int = 360_000,
          size: tuple[int, int] = (1280, 720), transition_rate: float = 0.15,
@@ -96,9 +119,7 @@ def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
     frames = round(seconds * rs.control_camera_fps)
     step = rs.refresh_hz // rs.control_camera_fps
     file_fps = rs.control_camera_fps / 2
-    writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), file_fps, (w, h), False)
-    if not writer.isOpened():
-        raise RuntimeError(f"cannot write {out}")
+    writer = _open_writer(out, file_fps, (w, h))
     truths = []
     try:
         for f in range(frames):
