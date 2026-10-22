@@ -9,9 +9,12 @@ dependencies = []
 [project.optional-dependencies]
 # The full-screen renderer. Pure logic (timecode, strip, layout, timing) has no dependencies.
 generator = ["pygame-ce>=2.5"]
+# The control camera recording analysis (SPEC.md, "Extension 2: image analysis").
+analysis = ["opencv-python-headless>=4.10", "numpy>=2"]
 
 [project.scripts]
 camlag-generator = "camlag.generator.app:main"
+camlag-analyse = "camlag.analysis.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]

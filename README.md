@@ -12,7 +12,7 @@ See [SPEC.md](SPEC.md) for the full scope and build phases.
 | --- | --- | --- |
 | 1 | Generator core: clock, code strip, frame-locked timing, dropped-frame logging | Done, awaiting Pi 5 hardware checks |
 | 2 | Web control front end, presets, slate | Done |
-| 3 | Image analysis extension | Planned |
+| 3 | Image analysis extension | Started: works on synthetic recordings, awaiting real S5 footage |
 | 4 | Photodiode extension (Pi GPIO), then Pico timer and Lumix control | Planned |
 
 ## Running
@@ -74,6 +74,49 @@ rather than WebSocket, which keeps the server in the standard library.
   shorter than one period means vsync is not holding: logged as an early present. A single
   late timestamp followed by an early one is treated as scheduling jitter and ignored.
 - The measured refresh rate is checked against the rate set, and a mismatch is logged.
+
+## Analysing recordings
+
+Runs on a PC. Install with `uv sync --extra analysis` (OpenCV and NumPy).
+
+```sh
+# once per camera setup: mark both strips on a frame of the recording (opens a local page)
+uv run camlag-analyse mark A001.mp4
+
+# decode every frame; writes A001-latency/results.csv, summary.json and report.html
+uv run camlag-analyse analyse A001.mp4 --setup A001.setup.json --run-log runs/20261022-140512.jsonl
+
+# one frame with both regions and their decoded values drawn on, for checking by eye
+uv run camlag-analyse review A001.mp4 --setup A001.setup.json --frame 250
+
+# one row per camera and frame rate across several runs
+uv run camlag-analyse combine A001-latency A002-latency --out summary.csv
+
+# a synthetic recording with a known latency, to try the tools without footage
+uv run camlag-analyse synth demo.mp4 --latency-ticks 8
+```
+
+- **Marking:** click the four corners of each strip, in any order. The page decodes them
+  live and shows the latency over the next few frames. On save it nudges each end onto
+  the cells. Regions are saved per setup and reused for every recording from that setup.
+- **Timing:** the real capture rate comes from the rate set (100fps or 120fps), not from
+  the file, because the S5 writes high-frame-rate footage into a 50p or 60p file. Override
+  it with `--capture-fps` if needed.
+- **Latency:** source count minus wall count, times the tick (10ms at 100Hz, 8.333ms at
+  120Hz). The resolution is one tick.
+- **Flagged frames:** these are left out of the figures and listed in the report:
+  - a strip caught mid-change
+  - a strip that cannot be read (glare, moiré)
+  - a reading that looks wrong: negative latency (regions swapped), or a count outside the
+    run log's range (wrong log)
+- **Report:** one self-contained HTML file with the slate, figures, a latency-over-time
+  chart, the distribution, checks, review frames with the regions drawn on, and every
+  sample. It prints cleanly.
+- **Strip direction:** a strip read right to left (marked backwards, or seen in a mirror)
+  is detected and decoded correctly.
+
+Still to check against real footage: the decode rate on the LED wall (PWM, scan banding,
+moiré), and exact frame seeking in the S5's long-GOP H.264 (used only for review images).
 
 ## On the Pi 5 (to verify)
 

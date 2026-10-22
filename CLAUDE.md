@@ -9,7 +9,10 @@
   `docs/strip-format.md`, bumps its version and keeps the decoder tests passing.
 - Write the test first for every rule. Hardware behaviour that cannot be tested here
   (Pi 5 refresh rates, vsync blocking, GPIO timing) is marked TODO(verify) in code.
-- Commands: `uv sync --extra generator`, `uv run pytest`, `uv run ruff check .`,
+- The analysis (`src/camlag/analysis`) decodes with `core.strip`, never its own copy. Test it
+  on synthetic recordings (`analysis.synth`) until real S5 footage is in `tests/`; any change
+  to sampling or decoding must keep `tests/test_analysis.py` exact on clean frames.
+- Commands: `uv sync --extra generator --extra analysis`, `uv run camlag-analyse --help`, `uv run pytest`, `uv run ruff check .`,
   `uv run camlag-generator --help`; render a frame without a display with
   `uv run camlag-generator --snapshot out.png`; web UI without a display:
   `uv run camlag-generator --headless 1920x1080`.

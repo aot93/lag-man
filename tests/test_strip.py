@@ -19,9 +19,23 @@ def test_gray_round_trip_and_single_bit_steps():
 
 def test_encode_layout():
     cells = encode(0)
-    assert len(cells) == strip.CELLS == 29
-    assert cells[:2] == [1, 0] and cells[-2:] == [0, 1]
-    assert sum(cells[2:-2]) % 2 == 0
+    assert len(cells) == strip.CELLS == 30
+    assert cells[:2] == [1, 0] and cells[-3:] == [0, 1, 1]
+    assert sum(cells[2:-3]) % 2 == 0
+
+
+def test_reversed_strip_decodes_the_right_way_round():
+    # a region marked right to left, or seen in a mirror
+    for n in (0, 1, 777, 5_000_000):
+        d = decode(levels_for(n)[::-1])
+        assert d.status is DecodeStatus.OK and d.count == n and d.reversed
+    assert not decode(levels_for(777)).reversed
+
+
+def test_reversed_mid_change_flagged():
+    a, b = levels_for(1023), levels_for(1024)
+    d = decode([(x + y) / 2 for x, y in zip(a, b, strict=True)][::-1])
+    assert d.status is DecodeStatus.TRANSITION and sorted(d.candidates) == [1023, 1024]
 
 
 def test_one_tick_changes_two_cells_at_most():

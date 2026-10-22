@@ -1,13 +1,15 @@
-"""The machine-readable code strip (format documented in docs/strip-format.md).
+"""The machine-readable code strip (format v2, documented in docs/strip-format.md).
 
 One row of equal cells, left to right:
 
-    W B | g23 g22 ... g0 | P | B W
+    W B | g23 g22 ... g0 | P | B W W
 
 W and B are white and black reference cells, g23..g0 is the count (mod 2**24) in Gray code,
 most significant bit first, and P makes the number of ones in g23..g0 plus P even. Gray code
 means one tick changes exactly one cell, so a frame caught mid-change shows at most one
-intermediate cell, which the decoder flags instead of guessing.
+intermediate cell, which the decoder flags instead of guessing. The references are
+asymmetric, so a strip read right to left (a region marked backwards, or a mirror) is
+recognised and decoded the right way round rather than misread.
 """
 
 from __future__ import annotations
@@ -16,11 +18,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+FORMAT_VERSION = 2
 COUNT_BITS = 24
 COUNT_MODULUS = 1 << COUNT_BITS
 LEAD = (1, 0)
-TRAIL = (0, 1)
+TRAIL = (0, 1, 1)
 CELLS = len(LEAD) + COUNT_BITS + 1 + len(TRAIL)
+_DATA = slice(len(LEAD), len(LEAD) + COUNT_BITS + 1)  # Gray bits then parity
+_REFS = [*((i, b) for i, b in enumerate(LEAD)),
+         *((CELLS - len(TRAIL) + i, b) for i, b in enumerate(TRAIL))]
 
 # Normalised level bands: below LOW is black, above HIGH is white, between is ambiguous.
 LOW = 0.3
@@ -64,25 +70,41 @@ class Decoded:
     candidates: tuple[int, ...] = ()
     reason: str = ""
     ambiguous: tuple[int, ...] = field(default=())
+    reversed: bool = False  # the levels were given right to left
 
 
 def decode(levels: Sequence[float], full_scale: float = 255.0) -> Decoded:
-    """Decode measured cell levels (for example mean luma per cell), left to right."""
+    """Decode measured cell levels (for example mean luma per cell), in either direction."""
     if len(levels) != CELLS:
         raise ValueError(f"expected {CELLS} cell levels, got {len(levels)}")
-    white = (levels[0] + levels[-1]) / 2
-    black = (levels[1] + levels[-2]) / 2
+    result = _decode(levels, full_scale)
+    if result.reason in _REF_FAILURES:
+        flipped = _decode(levels[::-1], full_scale)
+        if flipped.reason not in _REF_FAILURES:
+            return Decoded(flipped.status, flipped.count, flipped.candidates, flipped.reason,
+                           flipped.ambiguous, reversed=True)
+    return result
+
+
+_NO_CONTRAST = "reference contrast too low"
+_NO_REFS = "reference cells not found"
+_REF_FAILURES = (_NO_CONTRAST, _NO_REFS)
+
+
+def _decode(levels: Sequence[float], full_scale: float) -> Decoded:
+    whites = [levels[i] for i, b in _REFS if b]
+    blacks = [levels[i] for i, b in _REFS if not b]
+    white, black = sum(whites) / len(whites), sum(blacks) / len(blacks)
     span = white - black
     if span < MIN_CONTRAST * full_scale:
-        return Decoded(DecodeStatus.UNREADABLE, reason="reference contrast too low")
+        return Decoded(DecodeStatus.UNREADABLE, reason=_NO_CONTRAST)
 
     norm = [(v - black) / span for v in levels]
-    lead_trail = [*norm[:2], *norm[-2:]]
-    if not (lead_trail[0] > HIGH and lead_trail[1] < LOW and lead_trail[2] < LOW
-            and lead_trail[3] > HIGH):
-        return Decoded(DecodeStatus.UNREADABLE, reason="reference cells not found")
+    for i, b in _REFS:
+        if (norm[i] <= HIGH) if b else (norm[i] >= LOW):
+            return Decoded(DecodeStatus.UNREADABLE, reason=_NO_REFS)
 
-    data = norm[2:-2]  # 24 Gray bits then parity
+    data = norm[_DATA]
     ambiguous = tuple(i for i, v in enumerate(data) if LOW <= v <= HIGH)
     bits = [1 if v > 0.5 else 0 for v in data]
 
@@ -96,9 +118,9 @@ def decode(levels: Sequence[float], full_scale: float = 255.0) -> Decoded:
     data_amb = [i for i in ambiguous if i < COUNT_BITS]
     if len(data_amb) == 1:
         i = data_amb[0]
-        lo, hi = bits[:COUNT_BITS], bits[:COUNT_BITS]
-        lo = [*lo[:i], 0, *lo[i + 1:]]
-        hi = [*hi[:i], 1, *hi[i + 1:]]
+        gray_bits = bits[:COUNT_BITS]
+        lo = [*gray_bits[:i], 0, *gray_bits[i + 1:]]
+        hi = [*gray_bits[:i], 1, *gray_bits[i + 1:]]
         a, b = ungray(_bits_to_int(lo)), ungray(_bits_to_int(hi))
         if (a - b) % COUNT_MODULUS in (1, COUNT_MODULUS - 1):
             return Decoded(DecodeStatus.TRANSITION, candidates=(a, b),

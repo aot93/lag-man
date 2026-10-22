@@ -169,7 +169,9 @@ class Engine:
                            config=self.cfg.to_dict(), start_count=self.clock.count,
                            refresh_hz=self.cfg.refresh_hz, tc_rate=self.cfg.tc_rate,
                            display={"width": self.width, "height": self.height},
-                           slate=list(self._slate))
+                           # Logged even when not shown, so the analysis can name the run.
+                           slate=list(slate_lines(self.cfg, self.run_number, self._now())),
+                           slate_shown=self.cfg.slate.mode)
         pre = self.cfg.slate.pre_roll_s if self.cfg.slate.mode == "pre_roll" else 0
         if pre > 0:
             self.state = PRE_ROLL
