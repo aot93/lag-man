@@ -18,6 +18,11 @@
   `uv run camlag-generator --headless 1920x1080`.
 - The web server and UI use only the standard library and plain JS (no build step). The
   render loop owns all generator state: other threads change it only via `Engine.submit`.
+- The analysis app (`analysis/app.py`, `analysis/static/`) listens on 127.0.0.1 only. Every
+  `/api/` call checks the session token and the Host header; keep it that way for new routes.
+  Long work runs through `Jobs`, never on a request thread.
+- Theme switching lives in `web/static/theme.js`; the report has an inline copy
+  (`report.THEME_SCRIPT`). Keep them in step.
 - `src/camlag/web/static/tokens.css` is a copy of `design/tokens.css`; a test keeps them equal.
 - Ask before adding a runtime dependency.
 - Web UI and any generated HTML follow `docs/brand.md`; colours and type come from

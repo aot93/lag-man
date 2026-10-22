@@ -6,6 +6,12 @@ body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--font-body);-webk
 @media (max-width:640px){.wrap{padding:16px 16px 56px}}
 .mast{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:14px;margin-bottom:26px;border-bottom:3px solid;border-image:var(--accent-gradient) 1}
 .mast .logo{height:34px;width:auto}
+.theme{margin-left:auto;display:flex}
+.theme button{font:600 .72rem var(--font-display);color:var(--ink2);background:transparent;border:1px solid var(--border);padding:3px 9px;margin-left:-1px;cursor:pointer}
+.theme button:first-child{border-radius:var(--radius-sm) 0 0 var(--radius-sm);margin-left:0}
+.theme button:last-child{border-radius:0 var(--radius-sm) var(--radius-sm) 0}
+.theme button:hover{color:var(--accent)}
+.theme button.on{background:var(--accent-gradient);color:#fff;border-color:transparent}
 .product{font:800 1.5rem var(--font-display);letter-spacing:-.015em}
 .tag-eyebrow,.eyebrow{font:700 .7rem var(--font-display);letter-spacing:.17em;text-transform:uppercase;color:var(--accent)}
 .eyebrow{margin:0 0 6px}
@@ -53,4 +59,4 @@ table.data td.r{text-align:right;font-variant-numeric:tabular-nums}
 table.data td.mono{font-size:.75rem}
 table.data tbody tr:hover td{background:color-mix(in srgb,var(--accent) 4.5%,transparent)}
 .foot{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:.8rem}
-@media print{.samples{display:none}.reviews{grid-template-columns:1fr 1fr}.kf,.card,figure{break-inside:avoid}}
+@media print{.theme{display:none}.samples{display:none}.reviews{grid-template-columns:1fr 1fr}.kf,.card,figure{break-inside:avoid}}

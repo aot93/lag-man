@@ -139,14 +139,15 @@ def _scatter_svg(samples: Sequence[Sample], info: RunInfo) -> str:
     parts.append(f'<text class="ax" x="{left - 8}" y="12" text-anchor="end">ms</text>')
     radius = 4 if len(good) <= 400 else 3
     for s in good:
-        parts.append(f'<circle class="dot" cx="{x(s.time_s):.1f}" cy="{y(s.latency_ms):.1f}" '
+        parts.append(f'<circle class="dot" data-frame="{s.frame}" cx="{x(s.time_s):.1f}" '
+                     f'cy="{y(s.latency_ms):.1f}" '
                      f'r="{radius}"><title>Frame {s.frame} · {s.time_s:.2f} s · '
                      f'{s.latency_ms:.1f} ms ({s.latency_ticks} ticks)</title></circle>')
     lane_y = plot_bottom + 12
     parts.append(f'<text class="lane" x="{left - 8}" y="{lane_y + lane / 2 + 4:.1f}" '
                  f'text-anchor="end">flagged</text>')
     for s in flagged:
-        parts.append(f'<line class="flag {s.status}" x1="{x(s.time_s):.1f}" '
+        parts.append(f'<line class="flag {s.status}" data-frame="{s.frame}" x1="{x(s.time_s):.1f}" '
                      f'x2="{x(s.time_s):.1f}" y1="{lane_y}" y2="{lane_y + lane}">'
                      f'<title>Frame {s.frame} · {s.time_s:.2f} s · {escape(s.status)}: '
                      f'{escape(s.note)}</title></line>')
@@ -253,7 +254,9 @@ def html_report(samples: Sequence[Sample], summary: Summary, info: RunInfo, vide
 <style>{fonts}{tokens}{css}</style></head>
 <body><div class="wrap">
 <header class="mast"><img class="logo" src="data:image/png;base64,{logo}" alt="VYV">
-<span class="product">cam-lag</span><span class="tag-eyebrow">Latency report</span></header>
+<span class="product">cam-lag</span><span class="tag-eyebrow">Latency report</span>
+<div class="theme" role="radiogroup" aria-label="Theme"><button value="system">Auto</button><button
+value="light">Light</button><button value="dark">Dark</button></div></header>
 <p class="eyebrow">Glass-to-glass latency</p>
 <h1>{escape(title)}</h1>
 <p class="lede">Source clock minus wall clock for every control camera frame, decoded from the
@@ -285,12 +288,27 @@ LED wall strip, with the values decoded from each.</p>
 <div class="tablewrap"><table class="data"><thead><tr>{"".join(
         f"<th>{escape(f.replace('_', ' '))}</th>" for f in CSV_FIELDS)}</tr></thead>
 <tbody>{rows}</tbody></table></div></details></section>
+<script>{THEME_SCRIPT}</script>
 <footer class="foot">cam-lag analysis · strip format v2 · latency = (source count − wall count)
 × {info.tick_ms:.3f} ms</footer>
 </div></body></html>
 """
 
 
+
+
+# Auto / Light / Dark, remembered per browser like the apps (web/static/theme.js).
+THEME_SCRIPT = """
+(function(){var K="cam-lag.theme",r=document.documentElement,
+bs=document.querySelectorAll(".theme button");
+function get(){try{return localStorage.getItem(K)||"system"}catch(e){return "system"}}
+function set(t){if(t==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",t);
+try{t==="system"?localStorage.removeItem(K):localStorage.setItem(K,t)}catch(e){}
+bs.forEach(function(b){var on=b.value===t;b.classList.toggle("on",on);
+b.setAttribute("aria-checked",on)})}
+bs.forEach(function(b){b.type="button";b.setAttribute("role","radio");
+b.onclick=function(){set(b.value)}});set(get())})();
+"""
 
 
 def write_outputs(out_dir: Path, samples: Sequence[Sample], summary: Summary, info: RunInfo,

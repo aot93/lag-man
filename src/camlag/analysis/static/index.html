@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="camlag-token" content="__CAMLAG_TOKEN__">
+<title>cam-lag analysis</title>
+<link rel="icon" href="/static/vyv-logo.png">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/app/app.css">
+<script type="module" src="/app/app.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <a class="brand" href="#/">
+      <img class="logo" src="/static/vyv-logo.png" alt="VYV">
+      <h1>cam-lag</h1>
+      <span class="tag">Latency analysis</span>
+    </a>
+    <nav>
+      <span class="pill" id="jobs-pill" hidden></span>
+      <span class="pill" id="conn">Connecting</span>
+      <div id="theme"></div>
+    </nav>
+  </header>
+  <div class="alert" id="error" role="alert" hidden><p id="error-text"></p><div class="row"><button class="btn small" id="error-close" type="button">Dismiss</button></div></div>
+  <main id="view"></main>
+  <footer class="foot">
+    <span>Workspace <code id="ws-path"></code></span>
+    <span>Runs on this PC only. Videos stay where they are.</span>
+  </footer>
+</div>
+
+<dialog id="dlg" class="dlg">
+  <form method="dialog" class="dlg-head">
+    <h2 class="section" id="dlg-title"></h2>
+    <button class="btn small" value="close" aria-label="Close">Close</button>
+  </form>
+  <div id="dlg-body"></div>
+</dialog>
+</body>
+</html>

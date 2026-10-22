@@ -1,0 +1,120 @@
+/* cam-lag analysis app. Builds on /static/app.css (generator UI base); tokens from tokens.css. */
+
+a.brand { text-decoration: none; color: inherit; }
+.hero { margin: 4px 0 18px; }
+.hero h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); font-weight: 800; letter-spacing: -0.015em; line-height: 1.1; }
+.hero .lede { margin-top: 6px; }
+.path { font: 0.78rem var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
+.crumbs { font-size: 0.85rem; margin-bottom: 6px; }
+.crumbs a { color: var(--ink2); }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); margin: 16px 0; overflow-x: auto; }
+.tabs a {
+  font: 700 0.78rem var(--font-display); letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ink2); text-decoration: none; padding: 10px 14px; border-bottom: 3px solid transparent; white-space: nowrap;
+}
+.tabs a:hover { color: var(--accent); }
+.tabs a[aria-current="page"] { color: var(--ink); border-bottom: 3px solid; border-image: var(--accent-gradient) 1; }
+.tabs a .n { display: inline-block; width: 1.5em; height: 1.5em; line-height: 1.5em; text-align: center; border-radius: 50%; background: var(--raised); border: 1px solid var(--border); margin-right: 6px; font-size: 0.7rem; }
+.tabs a.done .n { background: var(--good); color: #fff; border-color: transparent; }
+
+/* Status pills */
+.pill.run { color: var(--s2); border-color: color-mix(in srgb, var(--s2) 40%, transparent); }
+
+/* Tables of recordings */
+table.data td a { color: var(--ink); font-weight: 500; }
+table.data td .sub-line { display: block; font: 0.72rem var(--font-mono); color: var(--muted); }
+table.data td.actions { text-align: right; white-space: nowrap; }
+table.data.clickable tbody tr { cursor: pointer; }
+table.data tbody tr.sel td { background: color-mix(in srgb, var(--s2) 14%, transparent); }
+.tablewrap.tall { max-height: 460px; }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 34px 18px; }
+.empty-state p { margin: 6px auto 16px; }
+
+/* Dialog */
+dialog.dlg {
+  width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 18px 20px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: var(--radius);
+}
+dialog.dlg::backdrop { background: rgb(5 6 43 / 55%); }
+.dlg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin: 0; }
+.steps-line { color: var(--muted); font-size: 0.8rem; margin: 0 0 10px; }
+
+/* File browser */
+.fb-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.fb-bar input { flex: 1; min-width: 0; font: 0.82rem var(--font-mono); padding: 5px 8px; background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+ul.fb { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+ul.fb li { display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; border-top: 1px solid var(--line); cursor: pointer; font-size: 0.88rem; }
+ul.fb li:first-child { border-top: 0; }
+ul.fb li:hover, ul.fb li:focus-visible { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+ul.fb li .ico { width: 1.2em; color: var(--muted); flex: none; text-align: center; }
+ul.fb li .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+ul.fb li .meta { font: 0.72rem var(--font-mono); color: var(--muted); white-space: nowrap; }
+ul.fb li.dir .nm { font-weight: 500; }
+
+/* Choice lists (run logs) */
+.choice { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; max-height: 40vh; overflow: auto; }
+.choice label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; cursor: pointer; background: var(--raised); font-size: 0.88rem; }
+.choice label:has(input:checked) { border-color: var(--accent); }
+.choice input { accent-color: var(--accent); margin-top: 4px; }
+.choice small { display: block; color: var(--muted); font-size: 0.76rem; }
+
+/* Regions */
+.stage { position: relative; background: #000; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); line-height: 0; }
+.stage canvas.view { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
+.stage canvas.loupe { position: absolute; top: 10px; right: 10px; width: 200px; height: 200px; border: 2px solid var(--accent); border-radius: var(--radius-sm); background: #000; pointer-events: none; }
+.stage canvas.loupe.left { right: auto; left: 10px; }
+.frame-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.frame-row input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
+.frame-row input[type=number] { width: 7em; font: 0.84rem var(--font-mono); padding: 4px 8px; background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.region { border-left: 3px solid var(--border); padding: 4px 0 4px 12px; margin-top: 12px; }
+.region.source { border-left-color: var(--s2); }
+.region.wall { border-left-color: var(--s1); }
+.region h3 { font-size: 0.9rem; display: flex; gap: 8px; align-items: center; }
+.region p { margin: 2px 0; font-size: 0.86rem; }
+ol.how { margin: 0; padding-left: 20px; color: var(--ink2); font-size: 0.88rem; }
+ol.how li { margin: 3px 0; }
+
+/* Progress */
+.progress { height: 10px; border-radius: 99px; background: var(--raised); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 6px; }
+.progress > div { height: 100%; background: var(--accent-gradient); border-radius: 0 99px 99px 0; transition: width 0.3s; }
+
+/* Charts (server-drawn SVG, same classes as the report) */
+svg.chart { width: 100%; height: auto; display: block; font-family: var(--font-body); }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+svg .axis { stroke: var(--muted); stroke-width: 1; }
+svg .ax, svg .lane { fill: var(--muted); font-size: 12px; }
+svg .val { fill: var(--ink2); font-size: 12px; }
+svg .dot { fill: var(--s2); stroke: var(--surface); stroke-width: 2; cursor: pointer; }
+svg .dot:hover { r: 6; }
+svg .bar { fill: var(--s2); }
+svg .flag { stroke: var(--muted); stroke-width: 2; cursor: pointer; }
+svg .flag.unreadable, svg .flag.suspect { stroke: var(--ink2); stroke-width: 3; }
+svg .flag:hover { stroke: var(--accent); stroke-width: 4; }
+
+/* Review */
+.review img { width: 100%; display: block; background: #000; border-radius: var(--radius-sm); min-height: 80px; }
+dl.vals { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 10px 0 0; font-size: 0.86rem; }
+dl.vals dt { color: var(--muted); }
+dl.vals dd { margin: 0; font-family: var(--font-mono); font-size: 0.82rem; overflow-wrap: anywhere; }
+ul.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+ul.checks li { border-left: 3px solid var(--good); background: var(--raised); padding: 5px 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--ink2); font-size: 0.86rem; }
+ul.checks li.warn { border-left-color: var(--accent2); }
+ul.checks strong { color: var(--ink); font-family: var(--font-mono); margin-right: 6px; }
+
+.theme-seg .btn.small { padding: 3px 9px; }
+
+/* Type and spacing not in the generator base */
+.eyebrow { font-family: var(--font-display); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.17em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; }
+.lede { font-size: 1.08rem; color: var(--ink2); max-width: 70ch; }
+main .toolbar { margin-bottom: 14px; }
+.empty-state h2.section::after { margin-left: auto; margin-right: auto; }
+.mt { margin-top: 18px; }
+/* Let grid columns shrink below their content (wide tables scroll in their own box). */
+.split > *, .stack > * { min-width: 0; }

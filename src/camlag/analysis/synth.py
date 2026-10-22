@@ -96,7 +96,8 @@ def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
          latency_ticks: Callable[[int], int] | int = 8, start_count: int = 360_000,
          size: tuple[int, int] = (1280, 720), transition_rate: float = 0.15,
          noise: float = 4.0, blur: float = 1.2, seed: int = 1,
-         mirror_wall: bool = False) -> tuple[Setup, list[Truth], Path]:
+         mirror_wall: bool = False,
+         progress: Callable[[int, int], None] | None = None) -> tuple[Setup, list[Truth], Path]:
     """Write ``out`` (a video), ``out.setup.json`` and ``out.run.jsonl``.
 
     The file is written at half the capture rate, as the S5 does for 100/120fps capture.
@@ -139,6 +140,8 @@ def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
                 frame = cv2.GaussianBlur(frame, (0, 0), blur)
             frame += rng.normal(0, noise, frame.shape)
             writer.write(np.clip(frame, 0, 255).astype(np.uint8))
+            if progress and ((f + 1) % 10 == 0 or f + 1 == frames):
+                progress(f + 1, frames)
     finally:
         writer.release()
 

@@ -77,7 +77,10 @@
 }
 
 @media print {
-  :root {
+  /* Matches the theme selectors' specificity and comes later, so print always wins. */
+  :root,
+  :root:not([data-theme]),
+  :root[data-theme] {
     --bg: #fff;
     --surface: #fff;
     --raised: #fff;

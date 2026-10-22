@@ -1,6 +1,8 @@
 // cam-lag control UI. Plain ES module, no build step. All server text goes in via
 // textContent, never as HTML.
 
+import { themeControl } from "./theme.js";
+
 const $ = (id) => document.getElementById(id);
 const TC_RATES = { 50: [25, 50, 100], 60: [30, 60, 120] };
 const FIELD_LABELS = {
@@ -42,33 +44,6 @@ async function act(fn) {
 function showError(msg) {
   $("error").hidden = !msg;
   $("error-text").textContent = msg || "";
-}
-
-// ---- Theme -----------------------------------------------------------------------------
-
-const THEME_KEY = "cam-lag.theme";
-const THEMES = ["system", "light", "dark"];
-
-function loadTheme() {
-  try {
-    const v = localStorage.getItem(THEME_KEY);
-    return THEMES.includes(v) ? v : "system";
-  } catch {
-    return "system";
-  }
-}
-
-function applyTheme(theme) {
-  const root = document.documentElement;
-  if (theme === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", theme);
-  $("theme").textContent = `Theme: ${theme === "system" ? "auto" : theme}`;
-  try {
-    if (theme === "system") localStorage.removeItem(THEME_KEY);
-    else localStorage.setItem(THEME_KEY, theme);
-  } catch {
-    // Storage may be unavailable; the theme still applies for this visit.
-  }
 }
 
 // ---- Config form -----------------------------------------------------------------------
@@ -452,12 +427,7 @@ async function loadRuns() {
 // ---- Wiring ----------------------------------------------------------------------------
 
 async function init() {
-  let theme = loadTheme();
-  applyTheme(theme);
-  $("theme").addEventListener("click", () => {
-    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
-    applyTheme(theme);
-  });
+  themeControl($("theme"));
 
   for (const el of document.querySelectorAll("input[data-path], select[data-path]")) bindInput(el);
   for (const seg of document.querySelectorAll(".seg[data-path]")) bindSeg(seg);

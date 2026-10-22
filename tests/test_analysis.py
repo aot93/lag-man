@@ -2,8 +2,6 @@
 
 import csv
 import json
-import threading
-import urllib.request
 
 import pytest
 
@@ -12,7 +10,7 @@ pytest.importorskip("cv2")
 from camlag.analysis import report, synth  # noqa: E402
 from camlag.analysis.analyse import OK, SUSPECT, TRANSITION, analyse, summarise  # noqa: E402
 from camlag.analysis.cli import main as cli  # noqa: E402
-from camlag.analysis.roi import Quad, read, refine  # noqa: E402
+from camlag.analysis.roi import Quad, refine  # noqa: E402
 from camlag.analysis.setup import RunInfo, Setup  # noqa: E402
 from camlag.analysis.video import Video  # noqa: E402
 
@@ -179,43 +177,3 @@ def test_cli_analyse(tmp_path, clip, capsys):
     assert cli(["review", str(path), "--setup", str(path.with_suffix(".setup.json")),
                 "--frame", "3", "--out", str(tmp_path / "f.png")]) == 0
     assert (tmp_path / "f.png").is_file()
-
-
-def test_mark_server(tmp_path, clip):
-    from camlag.analysis.mark import serve
-
-    path, setup, _, _ = clip
-    target = tmp_path / "marked.json"
-    ready = threading.Event()
-    th = threading.Thread(target=serve, args=(path, target, 0, False, ready), daemon=True)
-    th.start()
-    assert ready.wait(10)
-    base = f"http://127.0.0.1:{ready.port}"
-
-    def post(p, body):
-        r = urllib.request.Request(base + p, json.dumps(body).encode(), method="POST",
-                                   headers={"Content-Type": "application/json"})
-        return json.loads(urllib.request.urlopen(r, timeout=10).read())
-
-    try:
-        info = json.loads(urllib.request.urlopen(base + "/api/info", timeout=10).read())
-        assert info["frames"] == 60 and info["setup"] is None
-        frame = urllib.request.urlopen(base + "/api/frame?n=5", timeout=10).read()
-        assert frame[:2] == b"\xff\xd8"
-        nudged = {"source": setup.source.adjusted(0.3, 0.3).to_json(),
-                  "wall": setup.wall.adjusted(-0.3, 0.2).to_json(), "frame": 0}
-        out = post("/api/check", nudged)
-        assert out["source"]["ok_frames"] > 0 and out["latency_ticks"]
-        saved = post("/api/save", nudged)
-        assert saved["clean"]["source"] >= 8 and target.is_file()
-        assert read_ok(path, Setup.load(target))
-        assert urllib.request.urlopen(base + "/static/tokens.css", timeout=10).status == 200
-    finally:
-        ready.server.shutdown()
-        th.join(5)
-
-
-def read_ok(path, setup):
-    with Video(path) as v:
-        g = next(v.frames(0, 1))[1]
-    return read(g, setup.source).count is not None

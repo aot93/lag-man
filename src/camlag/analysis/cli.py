@@ -1,6 +1,10 @@
 """camlag-analyse: latency from control camera recordings.
 
-  mark      open a page to mark the source and wall strips on a video (once per setup)
+Run with no command to open the analysis app in your browser, where the whole workflow
+happens: add recordings, attach run logs, mark regions, analyse and review.
+
+  app       open the analysis app (the default)
+  mark      open the app on one video's regions step
   analyse   decode every frame and write results.csv, summary.json and report.html
   review    write one frame with both regions and their decoded values drawn on
   combine   summarise several analysed runs per camera and frame rate
@@ -38,35 +42,23 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
 
 
 def cmd_analyse(args: argparse.Namespace) -> int:
-    from .analyse import analyse, summarise
-    from .overlay import draw, jpeg
-    from .report import pick_review, write_outputs
+    from .pipeline import run
     from .setup import Setup
-    from .video import Video
 
     info = _info(args)
-    setup = Setup.load(args.setup)
     out = args.out or args.video.with_name(args.video.stem + "-latency")
-    with Video(args.video) as video:
-        if setup.video_size and setup.video_size != (video.width, video.height):
-            print(f"warning: regions were marked on a {setup.video_size[0]}x"
-                  f"{setup.video_size[1]} video; this one is {video.width}x{video.height}",
-                  file=sys.stderr)
-        start = round(args.start * info.capture_fps) if args.start else 0
-        end = round(args.end * info.capture_fps) if args.end else None
-        print(f"analysing {args.video.name}: {video.frame_count} frames, "
-              f"{info.frame_ms:.3f} ms each at {info.capture_fps} fps capture", file=sys.stderr)
-        samples = analyse(video.frames(start, end), setup, info)
-        summary = summarise(samples, info)
-        review = [(title, s, jpeg(draw(video.read(s.frame), setup, s, info, 960)))
-                  for title, s in pick_review(samples)]
-    paths = write_outputs(out, samples, summary, info, args.video.name, review)
+    print(f"analysing {args.video.name}: {info.frame_ms:.3f} ms per frame at "
+          f"{info.capture_fps} fps capture", file=sys.stderr)
+    result = run(args.video, Setup.load(args.setup), info, out, args.start, args.end)
+    for warning in result.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    summary = result.summary
     c = summary.counts
     mean = f"{summary.mean_ms:.1f} ms" if summary.mean_ms is not None else "n/a"
     print(f"{summary.n} good samples of {summary.frames}: mean {mean}, "
           f"min {summary.min_ms} ms, max {summary.max_ms} ms; flagged {c['transition']} "
           f"mid-change, {c['unreadable']} unreadable, {c['suspect']} suspect")
-    for name, path in paths.items():
+    for name, path in result.paths.items():
         print(f"{name}: {path}")
     return 0 if summary.n else 1
 
@@ -128,17 +120,30 @@ def cmd_synth(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_mark(args: argparse.Namespace) -> int:
-    from .mark import serve
+def cmd_app(args: argparse.Namespace) -> int:
+    from .app import serve
 
-    out = args.setup or args.video.with_suffix(".setup.json")
-    return serve(args.video, out, args.port)
+    return serve(args.workspace, args.port, not args.no_browser)
+
+
+def cmd_mark(args: argparse.Namespace) -> int:
+    from .app import serve
+
+    return serve(args.workspace, args.port, not args.no_browser, add=args.video)
+
+
+def _add_app_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--workspace", type=Path,
+                   help="folder for recordings, setups and results "
+                        "(default Documents/cam-lag)")
+    p.add_argument("--port", type=int, default=8090)
+    p.add_argument("--no-browser", action="store_true", help="do not open a browser")
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="camlag-analyse", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd")
 
     a = sub.add_parser("analyse", help="decode a recording and report latency")
     a.add_argument("video", type=Path)
@@ -162,10 +167,13 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--out", type=Path, help="also write the table to this CSV")
     c.set_defaults(fn=cmd_combine)
 
-    m = sub.add_parser("mark", help="mark the strip regions on a recording in the browser")
+    ap = sub.add_parser("app", help="open the analysis app in the browser (default)")
+    _add_app_args(ap)
+    ap.set_defaults(fn=cmd_app)
+
+    m = sub.add_parser("mark", help="open the app on one video's regions step")
     m.add_argument("video", type=Path)
-    m.add_argument("--setup", type=Path, help="regions file to write (default <video>.setup.json)")
-    m.add_argument("--port", type=int, default=8090)
+    _add_app_args(m)
     m.set_defaults(fn=cmd_mark)
 
     s = sub.add_parser("synth", help="make a synthetic recording with a known latency")
@@ -177,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--mirror-wall", action="store_true", help="show the wall mirrored")
     s.set_defaults(fn=cmd_synth)
 
+    argv = sys.argv[1:] if argv is None else list(argv)
+    # No command means the app, with any of its options: camlag-analyse --port 8091
+    if not argv or (argv[0] not in sub.choices and argv[0] not in ("-h", "--help")):
+        argv = ["app", *argv]
     args = p.parse_args(argv)
     try:
         return args.fn(args)

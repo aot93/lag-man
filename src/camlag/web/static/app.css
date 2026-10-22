@@ -62,6 +62,10 @@ code, .mono { font-family: var(--font-mono); }
 .btn.small { padding: 2px 8px; font-size: 0.72rem; }
 .btn.danger:hover:not(:disabled) { color: var(--error); border-color: var(--error); }
 .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg.theme-seg { gap: 0; flex-wrap: nowrap; }
+.seg.theme-seg .btn { border-radius: 0; margin-left: -1px; }
+.seg.theme-seg .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
+.seg.theme-seg .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
 
 /* Text */

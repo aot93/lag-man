@@ -77,28 +77,42 @@ rather than WebSocket, which keeps the server in the standard library.
 
 ## Analysing recordings
 
-Runs on a PC. Install with `uv sync --extra analysis` (OpenCV and NumPy).
+Runs on a PC (Windows, macOS or Linux). Install with `uv sync --extra analysis`, or on
+Windows without cloning:
 
-```sh
-# once per camera setup: mark both strips on a frame of the recording (opens a local page)
-uv run camlag-analyse mark A001.mp4
-
-# decode every frame; writes A001-latency/results.csv, summary.json and report.html
-uv run camlag-analyse analyse A001.mp4 --setup A001.setup.json --run-log runs/20261022-140512.jsonl
-
-# one frame with both regions and their decoded values drawn on, for checking by eye
-uv run camlag-analyse review A001.mp4 --setup A001.setup.json --frame 250
-
-# one row per camera and frame rate across several runs
-uv run camlag-analyse combine A001-latency A002-latency --out summary.csv
-
-# a synthetic recording with a known latency, to try the tools without footage
-uv run camlag-analyse synth demo.mp4 --latency-ticks 8
+```powershell
+uv tool install "camlag[analysis] @ git+https://github.com/aot93/cam-lag@phase-3-analysis"
 ```
 
-- **Marking:** click the four corners of each strip, in any order. The page decodes them
-  live and shows the latency over the next few frames. On save it nudges each end onto
-  the cells. Regions are saved per setup and reused for every recording from that setup.
+Then run `camlag-analyse` with no arguments. It opens the analysis app in your browser, and
+the whole workflow happens there:
+
+1. **Add a recording** with the file browser. Videos are read where they are, never copied.
+2. **Attach its run log.** Fetch it from the generator over the network, or pick the `.jsonl`
+   file. Logs in the workspace and next to the video are listed, closest in time first.
+   Without a run log, choose the rate set by hand.
+3. **Mark the regions** on a frame: four corners per strip, checked live, then saved as a
+   named setup that later recordings from the same camera position can reuse.
+4. **Analyse** in the background, with a progress bar and a cancel button.
+5. **Review the results:** figures, charts, checks and every sample. Click a dot, a flag or
+   a row to see that frame with the regions drawn on, and step frame by frame. Open the
+   report, or download the CSV or a summary per camera and frame rate.
+
+A **Make a demo recording** button creates a synthetic recording to try it without
+footage. The workspace (default `Documents/cam-lag`, or `--workspace DIR`) keeps
+recordings, setups, fetched run logs and results between sessions. The app only listens on
+this PC (127.0.0.1), and its API needs the page's session token.
+
+The same steps are available on the command line, for scripting:
+
+```sh
+uv run camlag-analyse analyse A001.mp4 --setup A001.setup.json --run-log runs/20261022-140512.jsonl
+uv run camlag-analyse review A001.mp4 --setup A001.setup.json --frame 250
+uv run camlag-analyse combine A001-latency A002-latency --out summary.csv
+uv run camlag-analyse synth demo.mp4 --latency-ticks 8
+uv run camlag-analyse mark A001.mp4   # opens the app on this video's regions step
+```
+
 - **Timing:** the real capture rate comes from the rate set (100fps or 120fps), not from
   the file, because the S5 writes high-frame-rate footage into a 50p or 60p file. Override
   it with `--capture-fps` if needed.
@@ -109,6 +123,8 @@ uv run camlag-analyse synth demo.mp4 --latency-ticks 8
   - a strip that cannot be read (glare, moiré)
   - a reading that looks wrong: negative latency (regions swapped), or a count outside the
     run log's range (wrong log)
+- **Theme:** the generator page, the analysis app and the report each have an Auto / Light
+  / Dark switch. Auto follows the system. Printing always uses the light print style.
 - **Report:** one self-contained HTML file with the slate, figures, a latency-over-time
   chart, the distribution, checks, review frames with the regions drawn on, and every
   sample. It prints cleanly.
