@@ -25,7 +25,7 @@ from .scene import compose, hex_colour
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="camlag-generator", description=__doc__,
+    p = argparse.ArgumentParser(prog="lagman-generator", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", type=Path, help="JSON config or preset file")
     p.add_argument("--rate-set", choices=("50", "60"))
@@ -43,8 +43,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--host", default="0.0.0.0", help="web UI address (default all interfaces)")
     p.add_argument("--port", type=int, default=8080, help="web UI port (default 8080)")
     p.add_argument("--no-web", action="store_true", help="do not start the web UI")
-    p.add_argument("--password", default=os.environ.get("CAMLAG_PASSWORD"),
-                   help="web UI password (or CAMLAG_PASSWORD); any user name is accepted")
+    p.add_argument("--password", default=os.environ.get("LAGMAN_PASSWORD"),
+                   help="web UI password (or LAGMAN_PASSWORD); any user name is accepted")
     p.add_argument("--snapshot", type=Path, metavar="PNG",
                    help="render one frame off-screen to a PNG and exit (no display needed)")
     p.add_argument("--size", default="1920x1080", metavar="WxH", help="snapshot size")
@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cfg = build_config(args)
     except (ValueError, OSError) as e:
-        print(f"camlag-generator: {e}", file=sys.stderr)
+        print(f"lagman-generator: {e}", file=sys.stderr)
         return 2
 
     os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -90,9 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     pygame.display.init()  # not pygame.init(): no audio needed
     pygame.font.init()
     if args.windowed:
-        window = video.Window("cam-lag", size=_size(args.windowed))
+        window = video.Window("lag-man", size=_size(args.windowed))
     else:
-        window = video.Window("cam-lag", fullscreen_desktop=True)
+        window = video.Window("lag-man", fullscreen_desktop=True)
         pygame.mouse.set_visible(False)
     renderer = WindowRenderer(window)
     if not renderer.accelerated:

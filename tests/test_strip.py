@@ -2,8 +2,8 @@ import random
 
 import pytest
 
-from camlag.core import strip
-from camlag.core.strip import DecodeStatus, count_difference, decode, encode, gray, ungray
+from lagman.core import strip
+from lagman.core.strip import DecodeStatus, count_difference, decode, encode, gray, ungray
 
 
 def levels_for(count, white=230.0, black=12.0):

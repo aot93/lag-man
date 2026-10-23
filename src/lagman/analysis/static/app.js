@@ -1,9 +1,9 @@
-// cam-lag analysis app. Plain ES module, no build step. Server text goes in via textContent;
+// lag-man analysis app. Plain ES module, no build step. Server text goes in via textContent;
 // the only HTML inserted is the chart SVG the server builds with escaped values.
 
 import { themeControl } from "/static/theme.js";
 
-const TOKEN = document.querySelector('meta[name="camlag-token"]').content;
+const TOKEN = document.querySelector('meta[name="lagman-token"]').content;
 const $ = (id) => document.getElementById(id);
 const COLOURS = () => {
   const cs = getComputedStyle(document.documentElement);
@@ -32,7 +32,7 @@ function h(tag, props = {}, ...children) {
 }
 
 async function api(method, path, body) {
-  const opts = { method, headers: { "X-Camlag-Token": TOKEN } };
+  const opts = { method, headers: { "X-Lagman-Token": TOKEN } };
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);

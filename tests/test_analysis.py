@@ -7,12 +7,12 @@ import pytest
 
 pytest.importorskip("cv2")
 
-from camlag.analysis import report, synth  # noqa: E402
-from camlag.analysis.analyse import OK, SUSPECT, TRANSITION, analyse, summarise  # noqa: E402
-from camlag.analysis.cli import main as cli  # noqa: E402
-from camlag.analysis.roi import Quad, refine  # noqa: E402
-from camlag.analysis.setup import RunInfo, Setup  # noqa: E402
-from camlag.analysis.video import Video  # noqa: E402
+from lagman.analysis import report, synth  # noqa: E402
+from lagman.analysis.analyse import OK, SUSPECT, TRANSITION, analyse, summarise  # noqa: E402
+from lagman.analysis.cli import main as cli  # noqa: E402
+from lagman.analysis.roi import Quad, refine  # noqa: E402
+from lagman.analysis.setup import RunInfo, Setup  # noqa: E402
+from lagman.analysis.video import Video  # noqa: E402
 
 SIZE = (960, 540)
 
@@ -133,8 +133,8 @@ def test_setup_round_trip(tmp_path, clip):
 
 
 def test_run_info_from_generator_log(tmp_path):
-    from camlag.core.config import GeneratorConfig
-    from camlag.generator.engine import Engine
+    from lagman.core.config import GeneratorConfig
+    from lagman.generator.engine import Engine
 
     cfg = GeneratorConfig(rate_set="60", tc_rate=60)
     cfg.slate.fields["camera_name"].value = "Cam B"

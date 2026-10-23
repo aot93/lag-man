@@ -1,4 +1,4 @@
-/* cam-lag HTML report. Colours and type from tokens.css (docs/brand.md). */
+/* lag-man HTML report. Colours and type from tokens.css (docs/brand.md). */
 :root{--chart-dot:var(--s2)}
 *{box-sizing:border-box}html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--font-body);-webkit-font-smoothing:antialiased;font-variant-numeric:lining-nums}

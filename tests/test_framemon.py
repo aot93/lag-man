@@ -1,4 +1,4 @@
-from camlag.core.framemon import EARLY, REPEAT, FrameMonitor
+from lagman.core.framemon import EARLY, REPEAT, FrameMonitor
 
 P = 10_000_000  # 100 Hz period in ns
 

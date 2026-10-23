@@ -1,4 +1,4 @@
-"""camlag-analyse: latency from control camera recordings.
+"""lagman-analyse: latency from control camera recordings.
 
 Run with no command to open the analysis app in your browser, where the whole workflow
 happens: add recordings, attach run logs, mark regions, analyse and review.
@@ -135,13 +135,13 @@ def cmd_mark(args: argparse.Namespace) -> int:
 def _add_app_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--workspace", type=Path,
                    help="folder for recordings, setups and results "
-                        "(default Documents/cam-lag)")
+                        "(default Documents/lag-man)")
     p.add_argument("--port", type=int, default=8090)
     p.add_argument("--no-browser", action="store_true", help="do not open a browser")
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="camlag-analyse", description=__doc__,
+    p = argparse.ArgumentParser(prog="lagman-analyse", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
 
@@ -186,14 +186,14 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_synth)
 
     argv = sys.argv[1:] if argv is None else list(argv)
-    # No command means the app, with any of its options: camlag-analyse --port 8091
+    # No command means the app, with any of its options: lagman-analyse --port 8091
     if not argv or (argv[0] not in sub.choices and argv[0] not in ("-h", "--help")):
         argv = ["app", *argv]
     args = p.parse_args(argv)
     try:
         return args.fn(args)
     except (ValueError, OSError) as e:
-        print(f"camlag-analyse: {e}", file=sys.stderr)
+        print(f"lagman-analyse: {e}", file=sys.stderr)
         return 2
 
 

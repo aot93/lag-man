@@ -11,9 +11,9 @@ import pytest
 
 pytest.importorskip("cv2")
 
-from camlag.analysis import app as app_mod  # noqa: E402
-from camlag.analysis import synth  # noqa: E402
-from camlag.analysis.setup import Setup  # noqa: E402
+from lagman.analysis import app as app_mod  # noqa: E402
+from lagman.analysis import synth  # noqa: E402
+from lagman.analysis.setup import Setup  # noqa: E402
 
 SIZE = (960, 540)
 
@@ -46,7 +46,7 @@ class Client:
         if data is not None:
             req.add_header("Content-Type", "application/json")
         if token:
-            req.add_header("X-Camlag-Token", self.token)
+            req.add_header("X-Lagman-Token", self.token)
         if host:
             req.add_header("Host", host)
         try:
@@ -206,10 +206,10 @@ def test_demo_job(server, monkeypatch):
 
 
 def test_fetch_run_logs_from_generator(server, tmp_path):
-    from camlag.core.config import GeneratorConfig
-    from camlag.generator.engine import Engine
-    from camlag.web.presets import PresetStore
-    from camlag.web.server import ControlServer
+    from lagman.core.config import GeneratorConfig
+    from lagman.generator.engine import Engine
+    from lagman.web.presets import PresetStore
+    from lagman.web.server import ControlServer
 
     c, app = server
     eng = Engine(GeneratorConfig(), 1920, 1080, tmp_path / "gen-runs")

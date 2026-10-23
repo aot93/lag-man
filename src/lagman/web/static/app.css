@@ -1,4 +1,4 @@
-/* cam-lag control UI. Colours and type come from tokens.css (docs/brand.md). */
+/* lag-man control UI. Colours and type come from tokens.css (docs/brand.md). */
 
 @font-face { font-family: Raleway; font-weight: 600; font-display: swap; src: url(fonts/raleway-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: Raleway; font-weight: 700; font-display: swap; src: url(fonts/raleway-latin-700-normal.woff2) format("woff2"); }

@@ -254,7 +254,7 @@ def html_report(samples: Sequence[Sample], summary: Summary, info: RunInfo, vide
 <style>{fonts}{tokens}{css}</style></head>
 <body><div class="wrap">
 <header class="mast"><img class="logo" src="data:image/png;base64,{logo}" alt="VYV">
-<span class="product">cam-lag</span><span class="tag-eyebrow">Latency report</span>
+<span class="product">lag-man</span><span class="tag-eyebrow">Latency report</span>
 <div class="theme" role="radiogroup" aria-label="Theme"><button value="system">Auto</button><button
 value="light">Light</button><button value="dark">Dark</button></div></header>
 <p class="eyebrow">Glass-to-glass latency</p>
@@ -289,7 +289,7 @@ LED wall strip, with the values decoded from each.</p>
         f"<th>{escape(f.replace('_', ' '))}</th>" for f in CSV_FIELDS)}</tr></thead>
 <tbody>{rows}</tbody></table></div></details></section>
 <script>{THEME_SCRIPT}</script>
-<footer class="foot">cam-lag analysis · strip format v2 · latency = (source count − wall count)
+<footer class="foot">lag-man analysis · strip format v2 · latency = (source count − wall count)
 × {info.tick_ms:.3f} ms</footer>
 </div></body></html>
 """
@@ -299,7 +299,7 @@ LED wall strip, with the values decoded from each.</p>
 
 # Auto / Light / Dark, remembered per browser like the apps (web/static/theme.js).
 THEME_SCRIPT = """
-(function(){var K="cam-lag.theme",r=document.documentElement,
+(function(){var K="lag-man.theme",r=document.documentElement,
 bs=document.querySelectorAll(".theme button");
 function get(){try{return localStorage.getItem(K)||"system"}catch(e){return "system"}}
 function set(t){if(t==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",t);

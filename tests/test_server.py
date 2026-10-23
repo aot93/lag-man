@@ -7,10 +7,10 @@ import urllib.request
 
 import pytest
 
-from camlag.core.config import GeneratorConfig
-from camlag.generator.engine import Engine
-from camlag.web.presets import PresetStore
-from camlag.web.server import ControlServer, deep_merge
+from lagman.core.config import GeneratorConfig
+from lagman.generator.engine import Engine
+from lagman.web.presets import PresetStore
+from lagman.web.server import ControlServer, deep_merge
 
 
 @pytest.fixture
@@ -121,7 +121,7 @@ def test_preview(srv):
 def test_static_and_traversal(srv):
     base, _ = srv
     code, html, headers = req(base, "GET", "/", raw=True)
-    assert code == 200 and b"cam-lag" in html and headers["Content-Type"] == "text/html"
+    assert code == 200 and b"lag-man" in html and headers["Content-Type"] == "text/html"
     assert req(base, "GET", "/tokens.css", raw=True)[0] == 200
     assert req(base, "GET", "/../server.py", raw=True)[0] == 404
     assert req(base, "GET", "/%2e%2e/server.py", raw=True)[0] == 404
@@ -144,5 +144,5 @@ def test_static_tokens_match_design():
     from pathlib import Path
 
     root = Path(__file__).parents[1]
-    static = root / "src/camlag/web/static"
+    static = root / "src/lagman/web/static"
     assert (static / "tokens.css").read_bytes() == (root / "design/tokens.css").read_bytes()

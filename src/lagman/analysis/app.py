@@ -88,7 +88,7 @@ class Jobs:
         self._jobs: list[Job] = []
         self._lock = threading.Lock()
         self._wake = threading.Condition(self._lock)
-        threading.Thread(target=self._worker, name="camlag-jobs", daemon=True).start()
+        threading.Thread(target=self._worker, name="lagman-jobs", daemon=True).start()
 
     def submit(self, kind: str, recording: str | None, label: str, fn) -> Job:
         job = Job(uuid.uuid4().hex[:10], kind, recording, label)
@@ -437,7 +437,7 @@ class App:
             raise bad("enter the generator's address, for example 192.168.1.50:8080")
         req = urllib.request.Request(base + path)
         if password:
-            token = base64.b64encode(f"camlag:{password}".encode()).decode()
+            token = base64.b64encode(f"lagman:{password}".encode()).decode()
             req.add_header("Authorization", f"Basic {token}")
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -555,7 +555,7 @@ class _Handler(BaseHTTPRequestHandler):
             url = urlsplit(self.path)
             if url.path.startswith("/api/"):
                 # Images and links cannot send headers, so GETs may carry it as ?t=.
-                given = self.headers.get("X-Camlag-Token") or (
+                given = self.headers.get("X-Lagman-Token") or (
                     parse_qs(url.query).get("t", [""])[0] if method == "GET" else "")
                 if not secrets.compare_digest(given, self.app.token):
                     raise ApiError(HTTPStatus.FORBIDDEN, "missing or wrong session token; "
@@ -678,7 +678,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _static(self, path: str) -> None:
         if path in ("/", "/index.html"):
             html = (APP_STATIC / "index.html").read_text(encoding="utf-8")
-            data = html.replace("__CAMLAG_TOKEN__", self.app.token).encode()
+            data = html.replace("__LAGMAN_TOKEN__", self.app.token).encode()
             return self._send(data, "text/html; charset=utf-8",
                               {"Content-Security-Policy": "default-src 'self'; img-src 'self' "
                                "data: blob:; style-src 'self' 'unsafe-inline'; "
@@ -724,7 +724,7 @@ def make_server(workspace: Path, port: int = 8090) -> tuple[ThreadingHTTPServer,
 
 def default_workspace() -> Path:
     docs = Path.home() / "Documents"
-    return (docs if docs.is_dir() else Path.home()) / "cam-lag"
+    return (docs if docs.is_dir() else Path.home()) / "lag-man"
 
 
 def serve(workspace: Path | None = None, port: int = 8090, open_browser: bool = True,
@@ -732,7 +732,7 @@ def serve(workspace: Path | None = None, port: int = 8090, open_browser: bool = 
     try:
         httpd, app = make_server(workspace or default_workspace(), port)
     except OSError as e:
-        print(f"camlag-analyse: cannot listen on port {port}: {e.strerror or e}. Is the app "
+        print(f"lagman-analyse: cannot listen on port {port}: {e.strerror or e}. Is the app "
               f"already open? Try --port {port + 1}.", file=sys.stderr)
         return 2
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
@@ -742,11 +742,11 @@ def serve(workspace: Path | None = None, port: int = 8090, open_browser: bool = 
             rec = next((r for r in app.ws.state.recordings if Path(r.video) == target), None)
             rec = rec or app.ws.add(add)
         except ValueError as e:
-            print(f"camlag-analyse: {e}", file=sys.stderr)
+            print(f"lagman-analyse: {e}", file=sys.stderr)
             httpd.server_close()
             return 2
         url += f"#/recording/{quote(rec.id)}/regions"
-    print(f"cam-lag analysis: {url}\nworkspace: {app.ws.root}\nPress Ctrl+C to stop.",
+    print(f"lag-man analysis: {url}\nworkspace: {app.ws.root}\nPress Ctrl+C to stop.",
           file=sys.stderr)
     if open_browser:
         webbrowser.open(url)

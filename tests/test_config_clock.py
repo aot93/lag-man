@@ -3,10 +3,10 @@ from datetime import datetime
 
 import pytest
 
-from camlag.core.clock import Clock
-from camlag.core.config import GeneratorConfig
-from camlag.core.runlog import RunLog, read_run_log
-from camlag.core.slate import slate_lines
+from lagman.core.clock import Clock
+from lagman.core.config import GeneratorConfig
+from lagman.core.runlog import RunLog, read_run_log
+from lagman.core.slate import slate_lines
 
 
 def test_config_json_round_trip():

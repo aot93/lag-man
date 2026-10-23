@@ -2,8 +2,8 @@ import itertools
 
 import pytest
 
-from camlag.core import layout, strip
-from camlag.core.config import SLATE_POSITIONS, GeneratorConfig
+from lagman.core import layout, strip
+from lagman.core.config import SLATE_POSITIONS, GeneratorConfig
 
 SLATE = ("TEST      latency A", "CAMERA    Venice 2", "FPS       25", "RUN       12",
          "CLOCK     25 fps TC / 100 Hz")

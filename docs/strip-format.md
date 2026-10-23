@@ -2,7 +2,7 @@
 
 The strip under the clock carries the count in a form software can decode. The analysis
 extension reads the strip, not the digits (SPEC.md, "Clock content"). The encoder and the
-reference decoder are in `src/camlag/core/strip.py`.
+reference decoder are in `src/lagman/core/strip.py`.
 
 ## Layout
 

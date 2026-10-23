@@ -1,4 +1,4 @@
-# cam-lag
+# lag-man
 
 A test generator for the glass-to-glass camera latency test. It shows a frame-locked clock on
 a 100Hz (or 120Hz) monitor, with a Gray-code strip that software can decode, so a control
@@ -21,10 +21,10 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync --extra generator
-uv run camlag-generator --rate-set 50 --tc-rate 25 --run      # full screen, 100Hz set
-uv run camlag-generator --rate-set 60 --tc-rate 120 --run     # 120Hz, fast mode
-uv run camlag-generator --windowed 1280x720 --run             # window, for development
-uv run camlag-generator --snapshot frame.png --count 123456   # render one frame, no display
+uv run lagman-generator --rate-set 50 --tc-rate 25 --run      # full screen, 100Hz set
+uv run lagman-generator --rate-set 60 --tc-rate 120 --run     # 120Hz, fast mode
+uv run lagman-generator --windowed 1280x720 --run             # window, for development
+uv run lagman-generator --snapshot frame.png --count 123456   # render one frame, no display
 ```
 
 Keys: Space start/stop a run, R reset, Esc or Q quit. Settings can also come from a JSON
@@ -38,7 +38,7 @@ in `runs/state.json`.
 
 The generator serves its control page on port 8080: open `http://<generator>:8080/` from any
 device on the network. It works with no internet (fonts are bundled). Set a shared password
-with `--password` or `CAMLAG_PASSWORD`; the browser asks for it, and any user name works.
+with `--password` or `LAGMAN_PASSWORD`; the browser asks for it, and any user name works.
 
 From the page: start, stop and reset; rate set and time code rate; start value; clock size,
 position and colours; strip and milliseconds; slate fields, position, size and mode (off,
@@ -50,7 +50,7 @@ To work on the UI without a display, run headless (frames are paced by a timer, 
 is simulated and the frame monitor is not exercised):
 
 ```sh
-uv run camlag-generator --headless 1920x1080 --port 8080
+uv run lagman-generator --headless 1920x1080 --port 8080
 ```
 
 Every control is also an HTTP JSON API, so runs can be scripted:
@@ -62,7 +62,7 @@ curl         localhost:8080/api/status
 curl -X POST localhost:8080/api/stop
 ```
 
-The full route list is in `src/camlag/web/server.py`. The API is plain HTTP with polling
+The full route list is in `src/lagman/web/server.py`. The API is plain HTTP with polling
 rather than WebSocket, which keeps the server in the standard library.
 
 ## How the timing works
@@ -81,10 +81,10 @@ Runs on a PC (Windows, macOS or Linux). Install with `uv sync --extra analysis`,
 Windows without cloning:
 
 ```powershell
-uv tool install "camlag[analysis] @ git+https://github.com/aot93/cam-lag@phase-3-analysis"
+uv tool install "lagman[analysis] @ git+https://github.com/aot93/lag-man@phase-3-analysis"
 ```
 
-Then run `camlag-analyse` with no arguments. It opens the analysis app in your browser, and
+Then run `lagman-analyse` with no arguments. It opens the analysis app in your browser, and
 the whole workflow happens there:
 
 1. **Add a recording** with the file browser. Videos are read where they are, never copied.
@@ -99,18 +99,18 @@ the whole workflow happens there:
    report, or download the CSV or a summary per camera and frame rate.
 
 A **Make a demo recording** button creates a synthetic recording to try it without
-footage. The workspace (default `Documents/cam-lag`, or `--workspace DIR`) keeps
+footage. The workspace (default `Documents/lag-man`, or `--workspace DIR`) keeps
 recordings, setups, fetched run logs and results between sessions. The app only listens on
 this PC (127.0.0.1), and its API needs the page's session token.
 
 The same steps are available on the command line, for scripting:
 
 ```sh
-uv run camlag-analyse analyse A001.mp4 --setup A001.setup.json --run-log runs/20261022-140512.jsonl
-uv run camlag-analyse review A001.mp4 --setup A001.setup.json --frame 250
-uv run camlag-analyse combine A001-latency A002-latency --out summary.csv
-uv run camlag-analyse synth demo.mp4 --latency-ticks 8
-uv run camlag-analyse mark A001.mp4   # opens the app on this video's regions step
+uv run lagman-analyse analyse A001.mp4 --setup A001.setup.json --run-log runs/20261022-140512.jsonl
+uv run lagman-analyse review A001.mp4 --setup A001.setup.json --frame 250
+uv run lagman-analyse combine A001-latency A002-latency --out summary.csv
+uv run lagman-analyse synth demo.mp4 --latency-ticks 8
+uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions step
 ```
 
 - **Timing:** the real capture rate comes from the rate set (100fps or 120fps), not from
@@ -152,4 +152,4 @@ The code strip format is in [docs/strip-format.md](docs/strip-format.md). UI sty
 [docs/brand.md](docs/brand.md) and [design/tokens.css](design/tokens.css).
 
 IBM Plex Mono, Raleway and Roboto are included under the SIL Open Font License
-(`src/camlag/generator/fonts/OFL.txt`, `src/camlag/web/static/fonts/LICENSE-*.txt`).
+(`src/lagman/generator/fonts/OFL.txt`, `src/lagman/web/static/fonts/LICENSE-*.txt`).

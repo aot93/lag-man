@@ -74,7 +74,7 @@ class ControlServer:
         return self.httpd.server_address[1]
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self.httpd.serve_forever, name="camlag-web",
+        self._thread = threading.Thread(target=self.httpd.serve_forever, name="lagman-web",
                                         daemon=True)
         self._thread.start()
 
@@ -188,7 +188,7 @@ def _obj(body: Any) -> dict[str, Any]:
 
 class _Handler(BaseHTTPRequestHandler):
     app: ControlServer
-    server_version = "cam-lag"
+    server_version = "lag-man"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
@@ -211,7 +211,7 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._read_body()
             if not self._authorised():
                 self.send_response(HTTPStatus.UNAUTHORIZED)
-                self.send_header("WWW-Authenticate", 'Basic realm="cam-lag", charset="UTF-8"')
+                self.send_header("WWW-Authenticate", 'Basic realm="lag-man", charset="UTF-8"')
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return

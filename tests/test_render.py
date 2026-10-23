@@ -8,10 +8,10 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 pygame = pytest.importorskip("pygame")
 
-from camlag.core import layout, strip  # noqa: E402
-from camlag.core.config import GeneratorConfig  # noqa: E402
-from camlag.generator.render import FONT_PATH, SurfaceRenderer  # noqa: E402
-from camlag.generator.scene import Text, compose, hex_colour  # noqa: E402
+from lagman.core import layout, strip  # noqa: E402
+from lagman.core.config import GeneratorConfig  # noqa: E402
+from lagman.generator.render import FONT_PATH, SurfaceRenderer  # noqa: E402
+from lagman.generator.scene import Text, compose, hex_colour  # noqa: E402
 
 
 def cell_levels(surface, lay):

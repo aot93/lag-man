@@ -1,6 +1,6 @@
 # Brand and style guide
 
-The cam-lag web control UI and its printable reports share one look, taken from the
+The lag-man web control UI and its printable reports share one look, taken from the
 "Fidelity Under Load" report: a dark navy and white base, one red-to-orange
 accent, Raleway headings, Roboto body text and IBM Plex Mono for every byte,
 number and field name. All values live in [`design/tokens.css`](../design/tokens.css);
@@ -27,7 +27,7 @@ The accent gradient (`--accent` to `--accent2`, left to right) is the signature
 mark. It appears as the 3px masthead rule, the 52px bar under each section
 heading, and the fill of an active toggle button. Use it nowhere else.
 
-**Status mapping for cam-lag** (proposed; the source report has no
+**Status mapping for lag-man** (proposed; the source report has no
 warning colour): error uses `--accent`, warning uses `--accent2`, pass uses
 `--good`. Every status also carries a text label or icon, so colour is never
 the only signal. Dropped or repeated frames show as a warning until acknowledged.

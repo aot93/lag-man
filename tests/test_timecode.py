@@ -1,7 +1,7 @@
 import pytest
 
-from camlag.core.rates import RATE_SETS, get_rate_set
-from camlag.core.timecode import (
+from lagman.core.rates import RATE_SETS, get_rate_set
+from lagman.core.timecode import (
     count_from_seconds,
     count_to_ms,
     parse_timecode,

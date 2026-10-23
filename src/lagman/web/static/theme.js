@@ -2,7 +2,7 @@
 // Light and Dark override it through data-theme on the root element. Shared by the
 // generator control page and the analysis app.
 
-const KEY = "cam-lag.theme";
+const KEY = "lag-man.theme";
 const THEMES = ["system", "light", "dark"];
 const LABELS = { system: "Auto", light: "Light", dark: "Dark" };
 

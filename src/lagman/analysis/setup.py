@@ -85,7 +85,7 @@ class RunInfo:
                    if line.strip()]
         start = next((r for r in records if r.get("event") == "run_start"), None)
         if start is None:
-            raise ValueError(f"{path.name} has no run_start record; is it a cam-lag run log?")
+            raise ValueError(f"{path.name} has no run_start record; is it a lag-man run log?")
         stop = next((r for r in reversed(records) if r.get("event") == "run_stop"), None)
         config = start.get("config", {})
         rs = get_rate_set(config.get("rate_set", "50"))

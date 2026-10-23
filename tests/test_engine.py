@@ -3,8 +3,8 @@ from datetime import datetime
 
 import pytest
 
-from camlag.core.runlog import read_run_log
-from camlag.generator.engine import IDLE, PRE_ROLL, RUNNING, CommandError, Engine
+from lagman.core.runlog import read_run_log
+from lagman.generator.engine import IDLE, PRE_ROLL, RUNNING, CommandError, Engine
 
 P = 10_000_000
 
@@ -24,7 +24,7 @@ class Loop:
 
 
 def make(tmp_path, cfg=None):
-    from camlag.core.config import GeneratorConfig
+    from lagman.core.config import GeneratorConfig
     holder = {}
     eng = Engine(cfg or GeneratorConfig(), 1920, 1080, tmp_path / "runs",
                  now=lambda: datetime(2026, 10, 22, 12, 0, 0),

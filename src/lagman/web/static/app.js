@@ -1,4 +1,4 @@
-// cam-lag control UI. Plain ES module, no build step. All server text goes in via
+// lag-man control UI. Plain ES module, no build step. All server text goes in via
 // textContent, never as HTML.
 
 import { themeControl } from "./theme.js";
