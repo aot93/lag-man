@@ -72,16 +72,6 @@
       </section>
 
       <section class="card">
-        <h2 class="section">Display</h2>
-        <p class="display-now"><span class="mono" id="display-mode">--</span> <span class="pill" id="display-pill"></span></p>
-        <p class="hint" id="display-tick"></p>
-        <ul class="list" id="display-modes"></ul>
-        <p class="empty" id="display-empty" hidden>The display reports no mode at a rate the clock can count at.</p>
-        <p class="hint" id="display-note"></p>
-        <p class="hint">Only modes at 100 or 120Hz, or the 50 or 60Hz fallback, are listed. At the fallback each tick is twice as long, so latency resolution halves.</p>
-      </section>
-
-      <section class="card">
         <h2 class="section">Live preview</h2>
         <div class="preview-box"><canvas id="preview" width="960" height="540" aria-label="Preview of the generator output"></canvas></div>
         <p class="hint" id="preview-hint">Drawn from the same frame data the generator renders.</p>
@@ -96,6 +86,16 @@
           </table>
         </div>
         <p class="empty" id="events-empty">No dropped or repeated frames.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Display</h2>
+        <p class="display-now"><span class="mono" id="display-mode">--</span> <span class="pill" id="display-pill"></span></p>
+        <p class="hint" id="display-tick"></p>
+        <ul class="list" id="display-modes"></ul>
+        <p class="empty" id="display-empty" hidden>The display reports no mode at a rate the clock can count at.</p>
+        <p class="hint" id="display-note"></p>
+        <p class="hint">Only modes at 100 or 120Hz, or the 50 or 60Hz fallback, are listed. At the fallback each tick is twice as long, so latency resolution halves.</p>
       </section>
     </div>
 
