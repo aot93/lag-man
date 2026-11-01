@@ -23,6 +23,7 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv sync --extra generator
 uv run lagman-generator --rate-set 50 --tc-rate 25 --run      # full screen, 100Hz set
 uv run lagman-generator --rate-set 60 --tc-rate 120 --run     # 120Hz, fast mode
+uv run lagman-generator --mode 1920x1080@50 --run             # a TV at the 50Hz fallback
 uv run lagman-generator --windowed 1280x720 --run             # window, for development
 uv run lagman-generator --snapshot frame.png --count 123456   # render one frame, no display
 ```
@@ -134,12 +135,28 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
 Still to check against real footage: the decode rate on the LED wall (PWM, scan banding,
 moiré), and exact frame seeking in the S5's long-GOP H.264 (used only for review images).
 
+## Display modes
+
+The clock counts at the display's refresh: 100 or 120Hz, or on a display that cannot reach
+that (most TVs), a fallback of 50 or 60Hz with half the resolution (20ms or 16.7ms ticks).
+The web UI's Display card lists the modes the display offers at those rates and switches
+between them while no run is in progress; `--mode 1920x1080@50` does the same at start. The
+last mode chosen is remembered in `runs/state.json`.
+
+Modes are set only from the Pi console (KMS). Under a desktop, set the mode in the desktop's
+screen settings or with `wlr-randr`; the UI still lists them. If the display runs at a rate
+the rate set cannot use, the UI shows one warning instead of a repeated-frame warning on
+every frame.
+
 ## On the Pi 5 (to verify)
 
-Run under the desktop (Wayland) with the display set to 100Hz or 120Hz, or from the console
-with `SDL_VIDEODRIVER=kmsdrm`. The generator warns if the display reports a different rate
-or the measured rate is off. Still to be checked on hardware: 120Hz output, that present
-blocks on vsync under KMS, and a clean one-hour run (SPEC.md, "Proposed acceptance checks").
+Run from the console with `SDL_VIDEODRIVER=kmsdrm`, or under the desktop (Wayland) with the
+display set to the mode you want. The pygame-ce wheel's SDL has no KMS driver, so on the Pi
+build pygame-ce against the system SDL (`libsdl2-dev` and friends, `python3-dev`, then
+`UV_PYTHON=/usr/bin/python3 UV_NO_BINARY_PACKAGE=pygame-ce uv sync --extra generator`).
+The generator warns if the display reports a different rate or the measured rate is off. Still to be checked on hardware: 120Hz output, that present
+blocks on vsync under KMS, switching display modes through SDL under KMS, and a clean
+one-hour run (SPEC.md, "Proposed acceptance checks").
 
 ## Development
 

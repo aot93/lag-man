@@ -3,6 +3,9 @@
 The render loop owns all state. Other threads call ``submit`` to queue a command, which the
 render loop applies between frames, so a frame never sees a half-applied change. ``status``
 and ``preview`` read snapshots that the render loop publishes once per frame.
+
+The count runs at the display's refresh: the rate set's standard rate, or its fallback when
+the display mode is 50 or 60Hz (SPEC.md, "Display mode").
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +24,9 @@ from typing import Any
 from ..core import layout as layout_mod
 from ..core.clock import Clock
 from ..core.config import GeneratorConfig
+from ..core.display import DisplayControl, DisplayMode, usable_modes
 from ..core.framemon import FrameEvent, FrameMonitor
+from ..core.rates import get_rate_set
 from ..core.runlog import RunLog, new_run_id
 from ..core.slate import slate_lines
 from ..core.timecode import parse_timecode, to_timecode
@@ -49,18 +54,26 @@ class _Command:
 class Engine:
     def __init__(self, cfg: GeneratorConfig, width: int, height: int, log_dir: Path,
                  now: Callable[[], datetime] = datetime.now,
-                 monotonic: Callable[[], float] = time.monotonic, simulated: bool = False):
+                 monotonic: Callable[[], float] = time.monotonic, simulated: bool = False,
+                 display: DisplayControl | None = None, mode_request: str | None = None):
         self.width, self.height = width, height
         self.simulated = simulated
         self.log_dir = log_dir
         self._now, self._mono = now, monotonic
         self._commands: queue.Queue[_Command] = queue.Queue()
         self._lock = threading.Lock()
-        self.cfg = cfg
-        self.clock = Clock(cfg, now=now)
-        self.monitor = FrameMonitor(cfg.refresh_hz)
+        self.notes: list[str] = []  # startup messages for the console
+        self.display = display
+        self._mode = display.current() if display else None
+        self._modes = usable_modes(display.modes()) if display else []
+        self.cfg = self._fit(cfg)
+        self.clock = Clock(self.cfg, now=now)
+        self.monitor = FrameMonitor(self.cfg.refresh_hz)
+        self._mismatch = False
         self.state = IDLE
-        self.run_number = self._load_run_number()
+        state = self._load_state()
+        self.run_number = _int(state.get("next_run_number"), 1)
+        self._saved_mode = state.get("display_mode")
         self.run_log: RunLog | None = None
         self.run_id: str | None = None
         self._pre_roll_until = 0.0
@@ -72,6 +85,8 @@ class Engine:
         self._slate: tuple[str, ...] = ()
         self._config_rev = 0
         self._relayout()
+        self._restore_mode(mode_request)
+        self._publish_display()
         self._publish()
 
     # ---- called from any thread -------------------------------------------------------
@@ -126,6 +141,9 @@ class Engine:
         self.clock.frame_displayed()
         for ev in self.monitor.observe(self._frame, t_ns):
             self._record(ev)
+        if self.monitor.mismatched != self._mismatch:
+            self._mismatch = self.monitor.mismatched
+            self._log_rate()
         self._frame += 1
         self._publish()
 
@@ -172,6 +190,8 @@ class Engine:
                            # Logged even when not shown, so the analysis can name the run.
                            slate=list(slate_lines(self.cfg, self.run_number, self._now())),
                            slate_shown=self.cfg.slate.mode)
+        if self._mismatch:
+            self._log_rate()
         pre = self.cfg.slate.pre_roll_s if self.cfg.slate.mode == "pre_roll" else 0
         if pre > 0:
             self.state = PRE_ROLL
@@ -197,10 +217,10 @@ class Engine:
             self.clock.reset()
 
     def _cmd_set_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        cfg = GeneratorConfig.from_dict(config)
+        cfg = self._fit(GeneratorConfig.from_dict(config))
         if cfg.rate_set != self.cfg.rate_set and self.state != IDLE:
             raise CommandError("stop the run before changing the rate set")
-        rate_changed = cfg.rate_set != self.cfg.rate_set
+        rate_changed = (cfg.rate_set, cfg.refresh_hz) != (self.cfg.rate_set, self.cfg.refresh_hz)
         start_changed = (cfg.start_mode, cfg.start_value) != (self.cfg.start_mode,
                                                               self.cfg.start_value)
         self.cfg = cfg
@@ -218,6 +238,104 @@ class Engine:
     def _cmd_ack_warnings(self) -> None:
         self._unacked = 0
 
+    def _cmd_set_display_mode(self, mode: str) -> dict[str, Any]:
+        if self.display is None or not self.display.can_set:
+            raise CommandError(self.display.note if self.display
+                               else "no display: the display mode cannot be set")
+        if self.state != IDLE:
+            raise CommandError("stop the run before changing the display mode")
+        try:
+            want = DisplayMode.parse(mode)
+        except ValueError as e:
+            raise CommandError(str(e)) from None
+        self._set_mode(want)
+        self._save_state()
+        return self.display_info()
+
+    # ---- display ----------------------------------------------------------------------
+
+    def display_info(self) -> dict[str, Any]:
+        """The display's usable modes, for the web UI. Any thread."""
+        with self._lock:
+            return json.loads(json.dumps(self._display_info))
+
+    def display_warning(self) -> str | None:
+        """Why the display's refresh does not suit the rate set, if it does not."""
+        if self._mode is None:
+            return None
+        rs = get_rate_set(self.cfg.rate_set)
+        if self._mode.hz in rs.refresh_rates:
+            return None
+        rates = " or ".join(map(str, rs.refresh_rates))
+        return (f"The display runs at {self._mode.hz} Hz; the {rs.label} rate set needs "
+                f"{rates} Hz. Choose a display mode or the other rate set.")
+
+    def _fit(self, cfg: GeneratorConfig) -> GeneratorConfig:
+        """Count at the display's refresh when the rate set allows it."""
+        rs = get_rate_set(cfg.rate_set)
+        hz = rs.refresh_for(self._mode.hz if self._mode else None)
+        fitted = replace(cfg, display_hz=hz, tc_rate=rs.fit_tc_rate(cfg.tc_rate, hz))
+        fitted.validate()
+        return fitted
+
+    def _set_mode(self, want: DisplayMode) -> None:
+        if want not in self._modes:
+            raise CommandError(f"{want} is not a mode this display offers")
+        try:
+            # TODO(verify): on the Pi 5 under KMS, that the output and window follow.
+            self._mode = self.display.set_mode(want)
+        except Exception as e:
+            raise CommandError(f"could not set {want}: {e}") from None
+        self.width, self.height = self._mode.width, self._mode.height
+        self.cfg = self._fit(self.cfg)
+        self.clock.cfg = self.cfg
+        self.clock.reset()  # a tick is a different length now
+        self.monitor = FrameMonitor(self.cfg.refresh_hz)
+        self._mismatch = False
+        self._config_rev += 1
+        self._refresh_slate(force=True)
+        self._relayout()
+        self._publish_display()
+
+    def _restore_mode(self, request: str | None) -> None:
+        if self.display is None or not self.display.can_set:
+            if request:
+                why = self.display.note if self.display else "no display"
+                self.notes.append(f"--mode ignored: {why}")
+            return
+        text = request or self._saved_mode
+        if not text:
+            return
+        try:
+            want = DisplayMode.parse(text)
+            if want != self._mode:
+                self._set_mode(want)
+        except (ValueError, CommandError) as e:
+            source = "requested" if request else "saved"
+            self.notes.append(f"{source} display mode {text} not used: {e}")
+            return
+        if request:
+            self._save_state()
+
+    def _publish_display(self) -> None:
+        info = {
+            "current": str(self._mode) if self._mode else None,
+            "can_set": bool(self.display and self.display.can_set),
+            "note": self.display.note if self.display else "No display (headless).",
+            "modes": [{"mode": str(m), "width": m.width, "height": m.height, "hz": m.hz,
+                       "rate_sets": m.rate_sets()} for m in self._modes],
+        }
+        with self._lock:
+            self._display_info = info
+
+    def _log_rate(self) -> None:
+        mon = self.monitor
+        if self._mismatch:
+            self._log("rate_mismatch", measured_hz=mon.measured_hz,
+                      expected_hz=self.cfg.refresh_hz)
+        else:
+            self._log("rate_ok", measured_hz=mon.measured_hz)
+
     # ---- internals --------------------------------------------------------------------
 
     def _stop(self) -> None:
@@ -231,7 +349,7 @@ class Engine:
         self.run_log = None
         self.state = IDLE
         self.run_number += 1
-        self._save_run_number()
+        self._save_state()
         self._refresh_slate(force=True)
 
     def _slate_visible(self) -> bool:
@@ -275,7 +393,10 @@ class Engine:
             "tc_rate": self.cfg.tc_rate,
             "refresh_hz": self.cfg.refresh_hz,
             "measured_hz": round(mon.measured_hz, 3) if mon.measured_hz else None,
-            "rate_mismatch": mon.rate_mismatch(),
+            "rate_mismatch": mon.mismatched,
+            "display_warning": self.display_warning(),
+            "tc_rates": list(get_rate_set(self.cfg.rate_set).timecode_rates_at(
+                self.cfg.refresh_hz)),
             "frames": mon.frames,
             "repeated_refreshes": mon.repeats,
             "early_presents": mon.early,
@@ -286,7 +407,8 @@ class Engine:
             "run_id": self.run_id,
             "pre_roll_remaining": (max(0.0, round(self._pre_roll_until - self._mono(), 1))
                                    if self.state == PRE_ROLL else None),
-            "display": {"width": self.width, "height": self.height},
+            "display": {"width": self.width, "height": self.height,
+                        "mode": str(self._mode) if self._mode else None},
             "config_rev": self._config_rev,
             "simulated_timing": self.simulated,
         }
@@ -297,15 +419,26 @@ class Engine:
     def _state_path(self) -> Path:
         return self.log_dir / "state.json"
 
-    def _load_run_number(self) -> int:
+    def _load_state(self) -> dict[str, Any]:
         try:
-            return int(json.loads(self._state_path().read_text())["next_run_number"])
-        except (OSError, ValueError, KeyError, TypeError):
-            return 1
+            state = json.loads(self._state_path().read_text())
+        except (OSError, ValueError):
+            return {}
+        return state if isinstance(state, dict) else {}
 
-    def _save_run_number(self) -> None:
+    def _save_state(self) -> None:
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self._state_path().write_text(json.dumps({"next_run_number": self.run_number}))
+        state: dict[str, Any] = {"next_run_number": self.run_number}
+        if self.display and self.display.can_set and self._mode:
+            state["display_mode"] = str(self._mode)
+        self._state_path().write_text(json.dumps(state))
+
+
+def _int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _op_json(op: Op) -> dict[str, Any]:

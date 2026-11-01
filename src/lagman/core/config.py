@@ -69,16 +69,23 @@ class GeneratorConfig:
     clock: ClockConfig = field(default_factory=ClockConfig)
     slate: SlateConfig = field(default_factory=SlateConfig)
     patch: PatchConfig = field(default_factory=PatchConfig)
+    # The refresh the display runs at; 0 is the rate set's standard rate. Set by the
+    # generator from the display mode, never saved in presets.
+    display_hz: int = field(default=0, metadata={"runtime": True})
 
     @property
     def refresh_hz(self) -> int:
-        return get_rate_set(self.rate_set).refresh_hz
+        return self.display_hz or get_rate_set(self.rate_set).refresh_hz
 
     def validate(self) -> None:
         rs = get_rate_set(self.rate_set)
-        if self.tc_rate not in rs.timecode_rates:
-            raise ValueError(f"time code rate {self.tc_rate} not in rate set {rs.key} "
-                             f"({', '.join(map(str, rs.timecode_rates))})")
+        if self.display_hz not in (0, *rs.refresh_rates):
+            raise ValueError(f"rate set {rs.key} cannot count at {self.display_hz} Hz "
+                             f"({' or '.join(map(str, rs.refresh_rates))} Hz)")
+        rates = rs.timecode_rates_at(self.refresh_hz)
+        if self.tc_rate not in rates:
+            raise ValueError(f"time code rate {self.tc_rate} not in rate set {rs.key} at "
+                             f"{self.refresh_hz} Hz ({', '.join(map(str, rates))})")
         _one_of("start_mode", self.start_mode, START_MODES)
         c = self.clock
         _between("clock.cx", c.cx, 0, 1)
@@ -101,15 +108,19 @@ class GeneratorConfig:
             _between(f"patch.{name}", getattr(p, name), 0, 1)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        for f in fields(self):
+            if f.metadata.get("runtime"):
+                del data[f.name]
+        return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> GeneratorConfig:
+    def from_dict(cls, data: dict[str, Any], display_hz: int = 0) -> GeneratorConfig:
         """Build from JSON, filling missing keys with defaults and rejecting unknown ones."""
         base = cls()
         top = _pick(cls, data, nested=("clock", "slate", "patch"))
         cfg = replace(
-            base, **top,
+            base, **top, display_hz=display_hz,
             clock=replace(base.clock, **_pick(ClockConfig, data.get("clock", {}))),
             patch=replace(base.patch, **_pick(PatchConfig, data.get("patch", {}))),
             slate=_slate_from_dict(data.get("slate", {})),
@@ -134,7 +145,7 @@ def _slate_from_dict(data: dict[str, Any]) -> SlateConfig:
 def _pick(cls: type, data: Any, nested: tuple[str, ...] = ()) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{cls.__name__} must be an object")
-    names = {f.name: f for f in fields(cls)}
+    names = {f.name: f for f in fields(cls) if not f.metadata.get("runtime")}
     unknown = set(data) - set(names)
     if unknown:
         raise ValueError(f"unknown {cls.__name__} keys: {sorted(unknown)}")

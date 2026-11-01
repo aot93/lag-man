@@ -11,6 +11,8 @@ API (all JSON):
     POST   /api/start | /api/stop | /api/reset | /api/warnings/ack
     POST   /api/start-value               {"value": "HH:MM:SS:FF"}
     GET    /api/preview                   current frame as draw operations
+    GET    /api/display                   display modes the generator can count at
+    PUT    /api/display                   {"mode": "1920x1080@50"}; only while idle
     GET    /api/presets                   preset names
     GET    /api/presets/<name>            preset config (?download=1 to save as a file)
     PUT    /api/presets/<name>            save; body is a config, or empty for the current one
@@ -109,6 +111,14 @@ class ControlServer:
                 return eng.status(), {}
             case "GET", ["preview"]:
                 return eng.preview(), {}
+            case "GET", ["display"]:
+                return eng.display_info(), {}
+            case "PUT", ["display"]:
+                mode = _obj(body).get("mode")
+                if not isinstance(mode, str):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "mode must be WIDTHxHEIGHT@HZ")
+                # A mode change can take the display a few seconds.
+                return self._submit("set_display_mode", timeout=15.0, mode=mode), {}
             case "GET", ["presets"]:
                 return {"presets": self.presets.list()}, {}
             case "GET", ["presets", name]:
@@ -131,9 +141,9 @@ class ControlServer:
                 return self._run_file(run_id), {}
         raise ApiError(HTTPStatus.NOT_FOUND, f"no route for {method} {path}")
 
-    def _submit(self, name: str, **args: Any) -> Any:
+    def _submit(self, name: str, timeout: float = 2.0, **args: Any) -> Any:
         try:
-            return self.engine.submit(name, **args)
+            return self.engine.submit(name, timeout, **args)
         except CommandError as e:
             raise ApiError(HTTPStatus.CONFLICT, str(e)) from None
         except TimeoutError as e:

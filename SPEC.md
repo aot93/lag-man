@@ -37,6 +37,8 @@ The generator ships with two rate sets, selected in the web UI, so the same test
 | 50Hz regions (Europe) | 25, 50 | 100Hz | 100 | 10ms |
 | 60Hz regions (non-European) | 30, 60 | 120Hz | 120 | about 8.3ms |
 
+A display that cannot reach 100 or 120Hz (most TVs) can run each rate set at a fallback of half the refresh: 50Hz in the 50Hz rate set, 60Hz in the 60Hz rate set. The clock then ticks every 20ms or 16.7ms, so latency resolution halves, and fast mode becomes 50 or 60fps. The count is always ticks of the refresh the display actually runs at, and the run log records it.
+
 **Clock content**
 
 - Hours, minutes, seconds, frames and milliseconds in large digits, readable from a camera at a distance.
@@ -46,9 +48,16 @@ The generator ships with two rate sets, selected in the web UI, so the same test
 
 **Timing requirements**
 
-- Output at the monitor's refresh rate: 100Hz in the 50Hz rate set, 120Hz in the 60Hz rate set. Each displayed frame increments the count by exactly one tick, driven by the frame count rather than the system clock, so the clock cannot drift or skip silently.
+- Output at the monitor's refresh rate: 100Hz in the 50Hz rate set, 120Hz in the 60Hz rate set, or the 50 or 60Hz fallback. Each displayed frame increments the count by exactly one tick, driven by the frame count rather than the system clock, so the clock cannot drift or skip silently.
 - Detect and log dropped or repeated frames, and show a warning flag in the config UI when one occurs.
 - Vsync on, no tearing, no scaling or interpolation.
+
+**Display mode**
+
+- The web UI lists the display's modes at a refresh a rate set can count at (from its EDID, as the display driver reports them) and switches between them while no run is in progress. The chosen mode is remembered for the next start, and can also be given on the command line.
+- Modes are set directly only from the Pi console (KMS). Under a desktop the compositor owns the mode, so the UI lists modes and says how to set them there.
+- If the display runs at a rate the rate set cannot use, the UI shows one warning naming the rate and the fix, rather than a repeated frame warning on every frame.
+- Later: forcing a mode the display does not list, and installing an EDID override. Both need root and a reboot, and a mode the display cannot show leaves it blank, so they need a safe way back.
 
 **Layout**
 
@@ -217,6 +226,7 @@ Suggested approach, unverified: start with a GPIO interrupt that reads the Pico'
 ## Open questions
 
 - Does the Pi 5 also output 120Hz (and 60Hz) cleanly on the chosen monitor? 100Hz is confirmed by research.
+- Does switching the display mode through SDL under KMS change the HDMI output, keep the renderer at the new size and keep present blocking on vsync? Untested on the Pi 5.
 - The proposed photodiode circuit is unbuilt. Confirm it on hardware using the checklist in the circuit section.
 - Can the S5 be started and stopped over Wi-Fi with liblumix, or does the wired remote cable start video recording? Neither is confirmed for the S5.
 - How should the Pico and Pi clocks be related for single mode timing?

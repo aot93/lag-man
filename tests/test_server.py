@@ -8,6 +8,7 @@ import urllib.request
 import pytest
 
 from lagman.core.config import GeneratorConfig
+from lagman.core.display import DisplayMode, SimulatedDisplay
 from lagman.generator.engine import Engine
 from lagman.web.presets import PresetStore
 from lagman.web.server import ControlServer, deep_merge
@@ -23,8 +24,14 @@ def locked(tmp_path):
     yield from _server(tmp_path, password="hunter2")
 
 
-def _server(tmp_path, password=None):
-    eng = Engine(GeneratorConfig(), 1920, 1080, tmp_path / "runs")
+@pytest.fixture
+def tv(tmp_path):
+    modes = [DisplayMode(1920, 1080, 60), DisplayMode(1920, 1080, 50)]
+    yield from _server(tmp_path, display=SimulatedDisplay(modes[0], modes))
+
+
+def _server(tmp_path, password=None, display=None):
+    eng = Engine(GeneratorConfig(), 1920, 1080, tmp_path / "runs", display=display)
     stop = threading.Event()
     t = [0]
 
@@ -134,6 +141,27 @@ def test_password(locked):
     assert code == 401 and "Basic" in headers["WWW-Authenticate"]
     assert req(base, "GET", "/api/status", auth="x:wrong", raw=True)[0] == 401
     assert req(base, "GET", "/api/status", auth="anyone:hunter2")[0] == 200
+
+
+def test_display_modes(tv):
+    base, _ = tv
+    code, info, _ = req(base, "GET", "/api/display")
+    assert code == 200 and info["current"] == "1920x1080@60"
+    assert [m["mode"] for m in info["modes"]] == ["1920x1080@60", "1920x1080@50"]
+    assert "60 Hz" in req(base, "GET", "/api/status")[1]["display_warning"]
+    code, info, _ = req(base, "PUT", "/api/display", {"mode": "1920x1080@50"})
+    assert code == 200 and info["current"] == "1920x1080@50"
+    st = req(base, "GET", "/api/status")[1]
+    assert st["refresh_hz"] == 50 and st["display_warning"] is None
+    assert req(base, "PUT", "/api/display", {"mode": "640x480@50"})[0] == 409
+    assert req(base, "PUT", "/api/display", {"mode": 5})[0] == 400
+
+
+def test_no_display_to_set(srv):
+    base, _ = srv
+    code, info, _ = req(base, "GET", "/api/display")
+    assert code == 200 and not info["can_set"] and info["modes"] == []
+    assert req(base, "PUT", "/api/display", {"mode": "1920x1080@50"})[0] == 409
 
 
 def test_deep_merge():

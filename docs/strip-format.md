@@ -25,9 +25,9 @@ plausible wrong count. v1 was never used on a recording.)
   width and 0.4 of the digit size. The strip is centred under the digits.
 - 2^24 ticks is 46.6 hours at 100Hz and 38.8 hours at 120Hz. Differences between two counts
   are taken mod 2^24 (`count_difference`), so a wrap does not upset a latency figure.
-- The count is ticks of the source refresh (10ms at 100Hz, 8.333ms at 120Hz), whatever the
-  time code rate. The run log records the rate set, so the analysis converts ticks to
-  milliseconds with the refresh rate from the log.
+- The count is ticks of the source refresh (10ms at 100Hz, 8.333ms at 120Hz, or 20ms and
+  16.667ms at the 50 and 60Hz fallbacks), whatever the time code rate. The run log records
+  the refresh rate, so the analysis converts ticks to milliseconds with the rate from the log.
 
 ## Why Gray code
 

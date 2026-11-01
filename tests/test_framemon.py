@@ -61,3 +61,20 @@ def test_wrong_refresh_detected():
     feed(mon, [16_666_667] * 300)  # running at 60 Hz
     assert mon.rate_mismatch()
     assert abs(mon.measured_hz - 60) < 0.01
+
+
+def test_wrong_display_rate_is_one_condition_not_a_flood_of_repeats():
+    # A 60Hz display under a 100Hz rate set: every present is 1.67 periods apart.
+    mon = FrameMonitor(100)
+    events = feed(mon, [16_666_667] * 600)
+    assert mon.mismatched and abs(mon.measured_hz - 60) < 0.01
+    assert len(events) <= 10  # only until enough gaps to measure the rate
+    assert mon.repeats <= 10
+
+
+def test_events_resume_once_the_rate_matches():
+    mon = FrameMonitor(100)
+    events = feed(mon, [16_666_667] * 300 + [P] * 400 + [2 * P] + [P] * 10)
+    assert not mon.mismatched
+    assert [(e.kind, e.frame, e.refreshes) for e in events if e.frame > 300] == [
+        (REPEAT, 701, 1)]

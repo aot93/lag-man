@@ -29,6 +29,9 @@
   </div>
   <div class="alert" id="error" role="alert" hidden><p id="error-text"></p></div>
   <div class="alert warn" id="layout-alert" hidden><p id="layout-alert-text"></p></div>
+  <div class="alert" id="display-alert" role="status" hidden>
+    <p><strong id="display-alert-title"></strong> <span id="display-alert-detail"></span></p>
+  </div>
 
   <section class="keyfacts" aria-label="Status">
     <div class="kf"><div class="n mono" id="kf-tc">--:--:--:--.---</div><div class="l">Time code · count <span class="mono" id="kf-count">0</span></div></div>
@@ -48,8 +51,8 @@
         </div>
         <div class="sub">Rate set</div>
         <div class="seg" id="rate-set" role="group" aria-label="Rate set">
-          <button class="btn" type="button" value="50">50Hz regions · 100Hz</button>
-          <button class="btn" type="button" value="60">60Hz regions · 120Hz</button>
+          <button class="btn" type="button" value="50">50Hz regions · 100 or 50Hz</button>
+          <button class="btn" type="button" value="60">60Hz regions · 120 or 60Hz</button>
         </div>
         <div class="sub">Time code rate</div>
         <div class="seg" id="tc-rate" role="group" aria-label="Time code rate"></div>
@@ -66,6 +69,16 @@
             <span class="text-edit"><input id="start-value" class="mono" placeholder="00:00:00:00" spellcheck="false"><button class="btn small" id="set-start" type="button">Set</button></span>
           </label>
         </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Display</h2>
+        <p class="display-now"><span class="mono" id="display-mode">--</span> <span class="pill" id="display-pill"></span></p>
+        <p class="hint" id="display-tick"></p>
+        <ul class="list" id="display-modes"></ul>
+        <p class="empty" id="display-empty" hidden>The display reports no mode at a rate the clock can count at.</p>
+        <p class="hint" id="display-note"></p>
+        <p class="hint">Only modes at 100 or 120Hz, or the 50 or 60Hz fallback, are listed. At the fallback each tick is twice as long, so latency resolution halves.</p>
       </section>
 
       <section class="card">

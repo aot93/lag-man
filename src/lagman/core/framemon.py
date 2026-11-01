@@ -9,6 +9,10 @@ have been shown (dropped) or may have torn.
 Scheduling jitter can delay one timestamp by a period, which looks like a long gap followed
 by a short one. The monitor holds a long gap for one frame and discards the pair when the
 two gaps sum to about two periods.
+
+A display running at the wrong rate (60Hz under a 100Hz rate set) would make every present
+look like a repeat. Once the median interval shows that, the monitor reports one condition,
+``mismatched``, instead of an event per frame, until the rate matches again.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ class FrameMonitor:
         self.frames = 0
         self.repeats = 0
         self.early = 0
+        self.mismatched = False
 
     def observe(self, frame: int, t_ns: int) -> list[FrameEvent]:
         events: list[FrameEvent] = []
@@ -48,6 +53,10 @@ class FrameMonitor:
             return events
         gap = float(t_ns - last)
         self._gaps.append(gap)
+        self.mismatched = self.rate_mismatch()
+        if self.mismatched:
+            self._pending = None
+            return events
         n = round(gap / self.period_ns)
 
         if self._pending is not None:

@@ -18,6 +18,7 @@ from pathlib import Path
 from ..core import layout as layout_mod
 from ..core.clock import Clock
 from ..core.config import START_MODES, GeneratorConfig
+from ..core.display import DisplayMode, SimulatedDisplay
 from ..core.framemon import REPEAT
 from ..core.slate import slate_lines
 from .engine import IDLE, CommandError, Engine
@@ -34,6 +35,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--start-value", help="HH:MM:SS:FF, with --start value")
     p.add_argument("--run", action="store_true", help="start a run immediately")
     p.add_argument("--duration", type=float, help="stop and exit after this many seconds")
+    p.add_argument("--mode", metavar="WxH@HZ",
+                   help="display mode, like 1920x1080@50 (Pi console only; remembered)")
     p.add_argument("--windowed", metavar="WxH", help="window instead of full screen (testing)")
     p.add_argument("--headless", metavar="WxH",
                    help="no display: pace frames with a timer so the web UI can be developed "
@@ -80,11 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.snapshot:
         return snapshot(cfg, args)
     if args.headless:
-        return run(cfg, args, None, _size(args.headless))
+        w, h = _size(args.headless)
+        return run(cfg, args, None, (w, h), SimulatedDisplay(DisplayMode(w, h, cfg.refresh_hz)))
 
     import pygame
     from pygame._sdl2 import video
 
+    from .display import SDLDisplay
     from .render import WindowRenderer
 
     pygame.display.init()  # not pygame.init(): no audio needed
@@ -99,21 +104,26 @@ def main(argv: list[str] | None = None) -> int:
         print("warning: no accelerated renderer; frame timing is not trustworthy",
               file=sys.stderr)
     try:
-        return run(cfg, args, renderer, window.size, _desktop_refresh(pygame))
+        return run(cfg, args, renderer, window.size, SDLDisplay(window, not args.windowed))
     finally:
         pygame.quit()
 
 
 def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[int, int],
-        desktop_hz: int | None = None) -> int:
+        display=None) -> int:
     """The frame loop. ``renderer`` None means headless: frames are paced by a timer."""
     width, height = size
-    engine = Engine(cfg, width, height, args.log_dir, simulated=renderer is None)
+    engine = Engine(cfg, width, height, args.log_dir, simulated=renderer is None,
+                    display=display, mode_request=args.mode)
+    for note in engine.notes:
+        print(f"warning: {note}", file=sys.stderr)
     for warning in engine.layout.warnings:
         print(f"warning: {warning}", file=sys.stderr)
-    if desktop_hz and desktop_hz != cfg.refresh_hz:
-        print(f"warning: display reports {desktop_hz} Hz; this rate set needs "
-              f"{cfg.refresh_hz} Hz", file=sys.stderr)
+    mode = engine.display_info()["current"]
+    if mode:
+        print(f"display {mode}; counting at {engine.cfg.refresh_hz} Hz", file=sys.stderr)
+    if engine.display_warning():
+        print(f"warning: {engine.display_warning()}", file=sys.stderr)
 
     server = None
     if not args.no_web:
@@ -164,10 +174,13 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
             now = time.monotonic()
             if now >= next_rate_check:
                 next_rate_check = now + 2.0
-                if engine.monitor.rate_mismatch() and not rate_warned:
+                if engine.monitor.mismatched and not rate_warned:
                     rate_warned = True
                     print(f"warning: measured refresh {engine.monitor.measured_hz:.2f} Hz, "
-                          f"expected {engine.cfg.refresh_hz} Hz", file=sys.stderr)
+                          f"expected {engine.cfg.refresh_hz} Hz; frame warnings are paused "
+                          "until the rates match", file=sys.stderr)
+                elif not engine.monitor.mismatched:
+                    rate_warned = False
             if args.duration and now - started >= args.duration:
                 break
     except KeyboardInterrupt:
@@ -228,14 +241,6 @@ def snapshot(cfg: GeneratorConfig, args: argparse.Namespace) -> int:
     surface = SurfaceRenderer(w, h).draw(compose(cfg, lay, count), hex_colour(cfg.clock.bg))
     pygame.image.save(surface, str(args.snapshot))
     return 0
-
-
-def _desktop_refresh(pygame) -> int | None:
-    try:
-        rates = pygame.display.get_desktop_refresh_rates()
-    except (AttributeError, pygame.error):
-        return None
-    return rates[0] if rates else None
 
 
 if __name__ == "__main__":

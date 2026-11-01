@@ -4,7 +4,7 @@
 import { themeControl } from "./theme.js";
 
 const $ = (id) => document.getElementById(id);
-const TC_RATES = { 50: [25, 50, 100], 60: [30, 60, 120] };
+const FIRST_TC_RATE = { 50: 25, 60: 30 }; // the server sends the full list in status.tc_rates
 const FIELD_LABELS = {
   test_name: "Test", camera_name: "Camera", camera_fps: "Camera fps", run_number: "Run",
   date_time: "Date/time", operator: "Operator", location: "Location", notes: "Notes",
@@ -89,9 +89,11 @@ function syncForm() {
 }
 
 function renderTcRates() {
+  if (!config || !status) return;
   const box = $("tc-rate");
-  const rates = TC_RATES[config.rate_set];
-  if (box.dataset.set !== config.rate_set) {
+  const rates = status.tc_rates;
+  const key = rates.join(",");
+  if (box.dataset.rates !== key) {
     box.replaceChildren(...rates.map((r, i) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -101,7 +103,7 @@ function renderTcRates() {
       b.addEventListener("click", () => applyPatch({ tc_rate: r }));
       return b;
     }));
-    box.dataset.set = config.rate_set;
+    box.dataset.rates = key;
   }
   for (const b of box.querySelectorAll("button")) b.classList.toggle("on", Number(b.value) === config.tc_rate);
 }
@@ -232,7 +234,87 @@ function renderStatus() {
   for (const b of $("rate-set").querySelectorAll("button")) b.disabled = s.state !== "idle";
 
   renderEvents(s.recent_events);
-  $("foot-display").textContent = `Output ${s.display.width} × ${s.display.height}`;
+  renderTcRates();
+  renderDisplayAlert(s);
+  const modeKey = `${s.display.mode}|${s.state}|${s.rate_set}`;
+  if (modeKey !== displayKey) {
+    displayKey = modeKey;
+    loadDisplay();
+  }
+  $("foot-display").textContent = `Output ${s.display.width} × ${s.display.height} · counting at ${s.refresh_hz} Hz`;
+}
+
+function renderDisplayAlert(s) {
+  let title = "";
+  let detail = "";
+  if (s.display_warning) {
+    title = "Display rate.";
+    detail = s.display_warning;
+  } else if (s.rate_mismatch && !s.simulated_timing) {
+    title = `Measured refresh ${s.measured_hz.toFixed(2)} Hz, expected ${s.refresh_hz} Hz.`;
+    detail = "The display is not running at the rate it reports. Frame warnings are paused until the rates match.";
+  }
+  $("display-alert").hidden = !title;
+  $("display-alert-title").textContent = title;
+  $("display-alert-detail").textContent = detail;
+}
+
+// ---- Display ---------------------------------------------------------------------------
+
+let displayKey = "";
+
+function fmtMode(m) {
+  return `${m.width} × ${m.height} · ${m.hz} Hz`;
+}
+
+async function loadDisplay() {
+  const info = await act(() => api("GET", "display"));
+  if (!info || !status) return;
+  const current = info.modes.find((m) => m.mode === info.current);
+  $("display-mode").textContent = current ? fmtMode(current) : (info.current || "Unknown");
+  const fits = !status.display_warning;
+  $("display-pill").textContent = fits ? `${status.rate_set}Hz set` : "Wrong rate";
+  $("display-pill").className = `pill ${fits ? "ok" : "bad"}`;
+  const tick = 1000 / status.refresh_hz;
+  $("display-tick").textContent = `Counting at ${status.refresh_hz} Hz: ${Number.isInteger(tick) ? tick : tick.toFixed(3)} ms per tick.`;
+  $("display-note").textContent = info.note;
+  $("display-empty").hidden = info.modes.length > 0;
+  const idle = status.state === "idle";
+  $("display-modes").replaceChildren(...info.modes.map((m) => {
+    const li = document.createElement("li");
+    const isCurrent = m.mode === info.current;
+    li.className = isCurrent ? "current" : "";
+    const name = document.createElement("span");
+    name.className = "name mono";
+    name.textContent = fmtMode(m);
+    const rates = document.createElement("span");
+    rates.className = "rates";
+    rates.textContent = m.rate_sets.map((k) => `${k}Hz set${m.hz < 100 ? " (fallback)" : ""}`).join(", ");
+    li.append(name, rates);
+    if (isCurrent) {
+      const pill = document.createElement("span");
+      pill.className = "pill";
+      pill.textContent = "Current";
+      li.append(pill);
+    } else {
+      const b = button("Use", () => setDisplayMode(m));
+      b.disabled = !info.can_set || !idle;
+      if (!idle) b.title = "Stop the run first";
+      li.append(b);
+    }
+    return li;
+  }));
+}
+
+async function setDisplayMode(m) {
+  $("display-mode").textContent = `Switching to ${fmtMode(m)}…`;
+  const info = await act(() => api("PUT", "display", { mode: m.mode }));
+  if (info) {
+    config = await api("GET", "config");
+    syncForm();
+    refreshPreview();
+  }
+  displayKey = "";
 }
 
 let lastEventsKey = "";
@@ -432,7 +514,7 @@ async function init() {
   for (const el of document.querySelectorAll("input[data-path], select[data-path]")) bindInput(el);
   for (const seg of document.querySelectorAll(".seg[data-path]")) bindSeg(seg);
   for (const b of $("rate-set").querySelectorAll("button")) {
-    b.addEventListener("click", () => applyPatch({ rate_set: b.value, tc_rate: TC_RATES[b.value][0] }));
+    b.addEventListener("click", () => applyPatch({ rate_set: b.value, tc_rate: FIRST_TC_RATE[b.value] }));
   }
 
   const command = (name) => async () => {

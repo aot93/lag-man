@@ -154,3 +154,9 @@ footer.foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--l
   .mast nav, .toolbar, .seg, .row, #preset-save { display: none; }
   .layout { grid-template-columns: 1fr; }
 }
+
+/* Display */
+.display-now { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; color: var(--ink); }
+.display-now .mono { font-size: 1.05rem; }
+ul.list li.current .name { font-weight: 600; }
+ul.list .rates { font-size: 0.72rem; color: var(--muted); }
