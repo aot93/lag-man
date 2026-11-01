@@ -244,7 +244,8 @@ def test_backend_creates_a_profile_then_activates_it():
 
 def test_backend_hotspot_stops_the_client_profile_autoconnecting():
     nm = FakeNmcli({net.WIFI: "connection.autoconnect:yes\n"})
-    NMBackend(nm).apply("hotspot", net.Hotspot("lag-man", "latency-test", "2.4",
+    NMBackend(nm, has_dnsmasq=lambda: True).apply("hotspot", net.Hotspot(
+        "lag-man", "latency-test", "2.4",
                                                "192.168.4.1/24"))
     assert ["connection", "modify", net.WIFI, "connection.autoconnect", "no"] in nm.calls
     assert nm.calls[-1][-1] == net.HOTSPOT
@@ -281,3 +282,21 @@ def test_backend_reports_missing_permission():
 
     with pytest.raises(NetworkError, match="install-pi.sh"):
         NMBackend(denied).apply("wired", net.IPv4())
+
+
+def test_hotspot_needs_dnsmasq():
+    nm = FakeNmcli()
+    backend = NMBackend(nm, has_dnsmasq=lambda: False)
+    with pytest.raises(NetworkError, match="dnsmasq-base"):
+        backend.apply("hotspot", net.Hotspot("lag-man", "latency-test"))
+    assert not any(c[:2] == ["connection", "add"] for c in nm.calls)
+
+
+def test_changes_and_failures_are_logged():
+    timers, lines = FakeTimers(), []
+    control = NetworkControl(SimulatedNetwork(), schedule=timers, log=lines.append)
+    control.backend.fail_next = "No suitable device found"
+    control.apply("hotspot", {"ssid": "lag-man", "password": "latency-test"})
+    timers.run()
+    assert any("hotspot" in line for line in lines)
+    assert any("No suitable device found" in line for line in lines)

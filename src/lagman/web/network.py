@@ -12,8 +12,10 @@ from __future__ import annotations
 import copy
 import math
 import os
+import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -71,12 +73,18 @@ def run_nmcli(args: list[str]) -> str:
     return p.stdout
 
 
+def _has_dnsmasq() -> bool:
+    return shutil.which("dnsmasq", path="/usr/sbin:/usr/bin:/sbin:/bin") is not None
+
+
 class NMBackend:
     """Reads and changes the network through nmcli. TODO(verify) on the Pi 5: the hotspot,
     switching between it and a Wi-Fi network, and reverting each."""
 
-    def __init__(self, run: Callable[[list[str]], str] = run_nmcli):
+    def __init__(self, run: Callable[[list[str]], str] = run_nmcli,
+                 has_dnsmasq: Callable[[], bool] = _has_dnsmasq):
         self._run = run
+        self._has_dnsmasq = has_dnsmasq
 
     def _nm(self, args: list[str]) -> str:
         try:
@@ -169,6 +177,10 @@ class NMBackend:
         return Snapshot(kind, profiles, active)
 
     def apply(self, kind: str, settings) -> None:
+        if kind == "hotspot" and not self._has_dnsmasq():
+            # NetworkManager runs dnsmasq to hand out addresses on a shared connection.
+            raise NetworkError("the hotspot needs dnsmasq to give out addresses; install "
+                               "it with 'sudo apt install dnsmasq-base'")
         dev = self._device(kind)
         names = {r[0] for r in self._connections()}
         name = _PROFILE[kind]
@@ -271,6 +283,10 @@ class SimulatedNetwork:
 # ---- confirm or revert ------------------------------------------------------------------
 
 
+def _log(message: str) -> None:
+    print(f"network: {message}", file=sys.stderr)  # the service's journal
+
+
 def _timer(delay: float, fn: Callable[[], None]) -> None:
     t = threading.Timer(delay, fn)
     t.daemon = True
@@ -280,8 +296,10 @@ def _timer(delay: float, fn: Callable[[], None]) -> None:
 class NetworkControl:
     def __init__(self, backend=None, note: str = "", confirm_s: float = 120.0,
                  delay_s: float = 1.0, schedule: Callable = _timer,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 log: Callable[[str], None] = _log):
         self.backend = backend
+        self._log = log
         self.note = note
         self.confirm_s = confirm_s
         self.delay_s = delay_s
@@ -332,6 +350,7 @@ class NetworkControl:
             self._pending = {"kind": kind, "state": "applying", "snap": snap,
                              "token": token, "deadline": 0.0}
             self._last_error = None
+        self._log(f"applying {KINDS[kind]} settings")
         self._schedule(self.delay_s, lambda: self._apply(token, kind, settings))
         return self.info()
 
@@ -339,8 +358,10 @@ class NetworkControl:
         try:
             self.backend.apply(kind, settings)
         except NetworkError as e:
+            self._log(f"{KINDS[kind]} settings failed: {e}")
             self._finish(token, f"Could not apply the {KINDS[kind]} settings: {e}.")
             return
+        self._log(f"{KINDS[kind]} settings applied; waiting for confirmation")
         with self._lock:
             if self._pending is None or self._pending["token"] is not token:
                 return
@@ -367,6 +388,7 @@ class NetworkControl:
             outcome, failed = "The previous settings were restored.", False
         except NetworkError as e:
             outcome, failed = f"Restoring the previous settings failed: {e}.", True
+        self._log(f"{reason or 'Reverted by the user.'} {outcome}")
         with self._lock:
             self._pending = None
             self._last_error = (f"{reason} {outcome}" if reason
@@ -377,6 +399,7 @@ class NetworkControl:
             if self._pending is None or self._pending["state"] != "waiting":
                 raise NetworkBusy("no network change is waiting for confirmation")
             self._pending = None
+        self._log("change kept")
         return self.info()
 
     def revert(self) -> dict[str, Any]:

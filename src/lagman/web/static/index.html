@@ -218,7 +218,7 @@
           </div>
           <div id="net-client" class="mt-s">
             <div class="form">
-              <label>Network (SSID)<input id="net-c-ssid" list="net-c-scan" maxlength="32" spellcheck="false" autocomplete="off"></label>
+              <label>Network (SSID)<input id="net-c-ssid" maxlength="32" spellcheck="false" autocomplete="off"></label>
               <label>Password<input id="net-c-password" type="password" maxlength="63" autocomplete="new-password"></label>
           <label>Addressing
             <select id="net-c-method"><option value="auto">DHCP</option><option value="manual">Static</option></select>
@@ -227,12 +227,12 @@
           <label class="net-c-static">Gateway<input id="net-c-gateway" class="mono" placeholder="192.168.1.1" spellcheck="false"></label>
           <label class="net-c-static">DNS<input id="net-c-dns" class="mono" placeholder="192.168.1.1, 1.1.1.1" spellcheck="false"></label>
             </div>
-            <datalist id="net-c-scan"></datalist>
             <div class="row">
               <button class="btn primary small" id="net-c-apply" type="button">Join</button>
               <button class="btn small" id="net-c-scan-btn" type="button">Scan</button>
               <span class="hint" id="net-c-scan-hint"></span>
             </div>
+            <ul class="list" id="net-c-scan"></ul>
           </div>
           <div id="net-hotspot" class="mt-s" hidden>
             <div class="form">

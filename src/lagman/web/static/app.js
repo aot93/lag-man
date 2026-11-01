@@ -655,12 +655,20 @@ async function scanWifi() {
   const out = await act(() => api("GET", "network/scan"));
   const nets = out ? out.networks : [];
   $("net-c-scan").replaceChildren(...nets.map((n) => {
-    const o = document.createElement("option");
-    o.value = n.ssid;
-    o.label = `${n.signal}% ${n.security || "open"}`;
-    return o;
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = n.ssid;
+    const meta = document.createElement("span");
+    meta.className = "rates";
+    meta.textContent = `${n.signal}% · ${n.security || "open"}`;
+    li.append(name, meta, button("Use", () => {
+      $("net-c-ssid").value = n.ssid;
+      $("net-c-password").focus();
+    }));
+    return li;
   }));
-  $("net-c-scan-hint").textContent = out ? `${nets.length} network${nets.length === 1 ? "" : "s"} found; pick one in the SSID box.` : "";
+  $("net-c-scan-hint").textContent = out ? `${nets.length} network${nets.length === 1 ? "" : "s"} found.` : "";
 }
 
 function bindNetwork() {
