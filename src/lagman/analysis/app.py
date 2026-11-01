@@ -724,7 +724,16 @@ def make_server(workspace: Path, port: int = 8090) -> tuple[ThreadingHTTPServer,
 
 def default_workspace() -> Path:
     docs = Path.home() / "Documents"
-    return (docs if docs.is_dir() else Path.home()) / "lag-man"
+    base = docs if docs.is_dir() else Path.home()
+    new, old = base / "lag-man", base / "cam-lag"
+    # The project was called cam-lag; carry an old workspace over (same format).
+    if not new.exists() and (old / "workspace.json").is_file():
+        try:
+            old.rename(new)
+        except OSError:
+            return old
+        print(f"moved the workspace from {old} to {new}", file=sys.stderr)
+    return new
 
 
 def serve(workspace: Path | None = None, port: int = 8090, open_browser: bool = True,

@@ -82,8 +82,12 @@ Runs on a PC (Windows, macOS or Linux). Install with `uv sync --extra analysis`,
 Windows without cloning:
 
 ```powershell
-uv tool install "lagman[analysis] @ git+https://github.com/aot93/lag-man@phase-3-analysis"
+uv tool install "lagman[analysis] @ git+https://github.com/aot93/lag-man"
 ```
+
+To update later, run `uv tool upgrade lagman`. If you installed it under its old name, run
+`uv tool uninstall camlag` first; the app moves an old `Documents\cam-lag` workspace to
+`Documents\lag-man` on its first start.
 
 Then run `lagman-analyse` with no arguments. It opens the analysis app in your browser, and
 the whole workflow happens there:

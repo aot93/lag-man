@@ -248,3 +248,15 @@ def test_fetch_run_logs_from_generator(server, tmp_path):
     finally:
         gen.stop()
         stop.set()
+
+
+def test_old_cam_lag_workspace_is_carried_over(tmp_path, monkeypatch):
+    from lagman.analysis import app as app_mod
+
+    monkeypatch.setattr(app_mod.Path, "home", classmethod(lambda cls: tmp_path))
+    (tmp_path / "Documents" / "cam-lag").mkdir(parents=True)
+    (tmp_path / "Documents" / "cam-lag" / "workspace.json").write_text("{}")
+    ws = app_mod.default_workspace()
+    assert ws == tmp_path / "Documents" / "lag-man"
+    assert (ws / "workspace.json").is_file() and not (tmp_path / "Documents" / "cam-lag").exists()
+    assert app_mod.default_workspace() == ws  # nothing more to move
