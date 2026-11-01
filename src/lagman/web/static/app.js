@@ -506,6 +506,183 @@ async function loadRuns() {
   }));
 }
 
+// ---- Network ---------------------------------------------------------------------------
+
+let network = null;
+let netFilled = false;
+let netTimer = null;
+
+function fmtCountdown(s) {
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function bareAddress(cidr) {
+  return (cidr || "").split("/")[0];
+}
+
+function readIpv4(pre) {
+  return {
+    method: $(`${pre}-method`).value,
+    address: $(`${pre}-address`).value.trim(),
+    gateway: $(`${pre}-gateway`).value.trim(),
+    dns: $(`${pre}-dns`).value.trim(),
+  };
+}
+
+function fillIpv4(pre, ip, current) {
+  $(`${pre}-method`).value = ip.method;
+  $(`${pre}-address`).value = ip.address || (current && current.addresses[0]) || "";
+  $(`${pre}-gateway`).value = ip.gateway || (current && current.gateway) || "";
+  $(`${pre}-dns`).value = (ip.dns && ip.dns.length ? ip.dns : (current && current.dns) || []).join(", ");
+  showStatic(pre);
+}
+
+function showStatic(pre) {
+  const manual = $(`${pre}-method`).value === "manual";
+  for (const el of document.querySelectorAll(`.${pre}-static`)) el.hidden = !manual;
+}
+
+function setWifiMode(mode) {
+  for (const b of $("net-wifi-mode").querySelectorAll("button")) b.classList.toggle("on", b.value === mode);
+  $("net-client").hidden = mode !== "client";
+  $("net-hotspot").hidden = mode !== "hotspot";
+}
+
+function fillNetworkForms(n) {
+  const eth = n.devices.ethernet;
+  const wifi = n.devices.wifi;
+  fillIpv4("net-w", n.profiles.wired || { method: "auto" }, eth);
+  const client = n.profiles.client || { ssid: wifi && wifi.mode === "client" ? wifi.ssid : "", ipv4: { method: "auto" } };
+  $("net-c-ssid").value = client.ssid;
+  $("net-c-password").value = "";
+  $("net-c-password").placeholder = n.profiles.client ? "Saved; blank keeps it" : "";
+  fillIpv4("net-c", client.ipv4, wifi && wifi.mode === "client" ? wifi : null);
+  const hotspot = n.profiles.hotspot || { ssid: "lag-man", band: "2.4", address: "192.168.4.1/24" };
+  $("net-h-ssid").value = hotspot.ssid;
+  $("net-h-password").value = "";
+  $("net-h-password").placeholder = n.profiles.hotspot ? "Saved; blank keeps it" : "8 to 63 characters";
+  $("net-h-band").value = hotspot.band;
+  $("net-h-address").value = hotspot.address;
+  setWifiMode(wifi && wifi.mode === "hotspot" ? "hotspot" : "client");
+}
+
+function renderNetwork(n) {
+  const rows = [];
+  for (const [kind, d] of Object.entries(n.devices)) {
+    let state = d.state.charAt(0).toUpperCase() + d.state.slice(1);
+    if (kind === "wifi" && d.mode === "hotspot") state = `Hotspot “${d.ssid}”`;
+    else if (kind === "wifi" && d.ssid) state = `Joined “${d.ssid}”`;
+    rows.push([`${kind === "wifi" ? "Wi-Fi" : "Wired"} · ${d.device}`, state, d.addresses.join(", ") || "None"]);
+  }
+  $("net-ports").replaceChildren(...rows.map((cells) => {
+    const tr = document.createElement("tr");
+    cells.forEach((text, i) => {
+      const td = document.createElement("td");
+      if (i === 2) td.className = "mono";
+      td.textContent = text;
+      tr.append(td);
+    });
+    return tr;
+  }));
+  $("net-reach").textContent = n.hostname ? `Also reachable as http://${n.hostname}.local:${location.port || 80}/ where the network supports it.` : "";
+  const err = n.error || n.last_error;
+  $("net-error").hidden = !err;
+  $("net-error-text").textContent = err || "";
+  $("net-note").textContent = n.note;
+  $("net-forms").disabled = !n.available || !!n.pending;
+  if (n.available && !n.pending && !netFilled) {
+    netFilled = true;
+    fillNetworkForms(n);
+  }
+
+  const p = n.pending;
+  $("net-alert").hidden = !p;
+  $("net-alert-actions").hidden = !p || p.state !== "waiting";
+  if (p) {
+    $("net-alert-title").textContent = {
+      applying: `Applying the ${p.label} settings.`,
+      waiting: `Keep the new ${p.label} settings?`,
+      reverting: `Restoring the previous ${p.label} settings.`,
+    }[p.state];
+    $("net-alert-detail").textContent = p.state === "waiting"
+      ? `They are reverted in ${fmtCountdown(p.remaining_s)} unless you keep them.`
+      : p.state === "applying" ? "If this page stops responding, reconnect at the new address and press Keep." : "";
+  }
+}
+
+async function loadNetwork() {
+  clearTimeout(netTimer);
+  try {
+    network = await api("GET", "network");
+    renderNetwork(network);
+  } catch (e) {
+    // The connection may be changing under us; try again shortly.
+  }
+  netTimer = setTimeout(loadNetwork, network && network.pending ? 1000 : 15000);
+}
+
+function newAddressHint(kind, body) {
+  if (kind === "wired" && body.method === "manual") return `http://${bareAddress(body.address)}:${location.port || 80}/`;
+  if (kind === "hotspot") return `Wi-Fi “${body.ssid}”, then http://${bareAddress(body.address) || "192.168.4.1"}:${location.port || 80}/`;
+  if (kind === "client" && body.ipv4.method === "manual") return `Wi-Fi “${body.ssid}”, then http://${bareAddress(body.ipv4.address)}:${location.port || 80}/`;
+  return `the address the network gives it${network && network.hostname ? ` (try http://${network.hostname}.local:${location.port || 80}/)` : ""}`;
+}
+
+async function applyNetwork(kind, body) {
+  const ok = window.confirm(`Apply these ${kind === "client" ? "Wi-Fi" : kind} settings?\n\n`
+    + `This page may lose its connection. Reconnect at ${newAddressHint(kind, body)} and press Keep within two minutes, or the previous settings come back.`);
+  if (!ok) return;
+  const out = await act(() => api("PUT", `network/${kind}`, body));
+  if (out) {
+    network = out;
+    netFilled = false; // refill from the saved settings once the change settles
+    renderNetwork(out);
+    loadNetwork();
+  }
+}
+
+async function netDecision(path) {
+  const out = await act(() => api("POST", `network/${path}`));
+  if (out) {
+    netFilled = false;
+    renderNetwork(out);
+    loadNetwork();
+  }
+}
+
+async function scanWifi() {
+  $("net-c-scan-hint").textContent = "Scanning…";
+  const out = await act(() => api("GET", "network/scan"));
+  const nets = out ? out.networks : [];
+  $("net-c-scan").replaceChildren(...nets.map((n) => {
+    const o = document.createElement("option");
+    o.value = n.ssid;
+    o.label = `${n.signal}% ${n.security || "open"}`;
+    return o;
+  }));
+  $("net-c-scan-hint").textContent = out ? `${nets.length} network${nets.length === 1 ? "" : "s"} found; pick one in the SSID box.` : "";
+}
+
+function bindNetwork() {
+  for (const pre of ["net-w", "net-c"]) {
+    $(`${pre}-method`).addEventListener("change", () => {
+      showStatic(pre);
+    });
+  }
+  for (const b of $("net-wifi-mode").querySelectorAll("button")) b.addEventListener("click", () => setWifiMode(b.value));
+  $("net-w-apply").addEventListener("click", () => applyNetwork("wired", readIpv4("net-w")));
+  $("net-c-apply").addEventListener("click", () => applyNetwork("client", {
+    ssid: $("net-c-ssid").value.trim(), password: $("net-c-password").value, ipv4: readIpv4("net-c"),
+  }));
+  $("net-h-apply").addEventListener("click", () => applyNetwork("hotspot", {
+    ssid: $("net-h-ssid").value.trim(), password: $("net-h-password").value,
+    band: $("net-h-band").value, address: $("net-h-address").value.trim(),
+  }));
+  $("net-c-scan-btn").addEventListener("click", scanWifi);
+  $("net-keep").addEventListener("click", () => netDecision("confirm"));
+  $("net-revert").addEventListener("click", () => netDecision("revert"));
+}
+
 // ---- Wiring ----------------------------------------------------------------------------
 
 async function init() {
@@ -550,6 +727,8 @@ async function init() {
   setInterval(refreshPreview, 400);
   loadPresets();
   loadRuns();
+  bindNetwork();
+  loadNetwork();
 }
 
 init();

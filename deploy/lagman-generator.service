@@ -1,0 +1,22 @@
+# lag-man generator, started at boot on the Pi console. deploy/install-pi.sh fills in
+# @USER@ and @REPO@ and installs it as /etc/systemd/system/lagman-generator.service.
+[Unit]
+Description=lag-man latency test generator
+After=systemd-user-sessions.service NetworkManager.service
+
+[Service]
+User=@USER@
+# video and render for the display (KMS), input for the keyboard
+SupplementaryGroups=video render input
+WorkingDirectory=@REPO@
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=PYTHONUNBUFFERED=1
+# LAGMAN_PASSWORD (web UI password) and LAGMAN_ARGS (extra options, like --mode 1920x1080@50)
+EnvironmentFile=-/etc/default/lagman-generator
+ExecStart=@REPO@/.venv/bin/lagman-generator --network $LAGMAN_ARGS
+# Restart after a crash or a display that was not ready, but not after Esc or Q.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

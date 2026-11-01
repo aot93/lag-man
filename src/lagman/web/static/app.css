@@ -160,3 +160,8 @@ footer.foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--l
 .display-now .mono { font-size: 1.05rem; }
 ul.list li.current .name { font-weight: 600; }
 ul.list .rates { font-size: 0.72rem; color: var(--muted); }
+
+/* Network */
+fieldset.net-forms { border: 0; margin: 0; padding: 0; min-width: 0; }
+fieldset.net-forms:disabled { opacity: 0.55; }
+#net-error { margin: 12px 0 0; }

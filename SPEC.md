@@ -87,6 +87,7 @@ The generator runs a small web server. Any device on the network opens a page to
 - **Run log:** each run records its start time, settings and slate to a file the analysis extension can read.
 - **API:** every control is also available over a simple HTTP or WebSocket API, so runs can be scripted and the extensions can talk to the generator.
 - **Access:** works on the local network without internet. Basic access protection, such as a shared password, is enough.
+- **Network:** on the Pi, set the wired port (DHCP or static), join a Wi-Fi network (name, password, DHCP or static) or run a hotspot with a fixed address and DHCP for the devices that join. Because a change can cut off the browser that made it, each change waits for the user to confirm it from the new address and reverts after two minutes otherwise. The generator starts at boot as a service.
 
 ## Extension 1: photodiode testing
 
@@ -227,6 +228,8 @@ Suggested approach, unverified: start with a GPIO interrupt that reads the Pico'
 
 - Does the Pi 5 also output 120Hz (and 60Hz) cleanly on the chosen monitor? 100Hz is confirmed by research.
 - Does switching the display mode through SDL under KMS change the HDMI output, keep the renderer at the new size and keep present blocking on vsync? Untested on the Pi 5.
+- Does the hotspot work on the Pi 5's Wi-Fi with the settings chosen (WPA2, CCMP), and does switching between hotspot and a Wi-Fi network, and reverting, behave under NetworkManager? Untested on the Pi 5.
+- Does the generator, started at boot as a service with no login, get the display and keyboard under KMS? Untested on the Pi 5.
 - The proposed photodiode circuit is unbuilt. Confirm it on hardware using the checklist in the circuit section.
 - Can the S5 be started and stopped over Wi-Fi with liblumix, or does the wired remote cable start video recording? Neither is confirmed for the S5.
 - How should the Pico and Pi clocks be related for single mode timing?

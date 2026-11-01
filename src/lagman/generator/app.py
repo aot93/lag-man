@@ -10,6 +10,7 @@ import argparse
 import gc
 import json
 import os
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -46,6 +47,9 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--host", default="0.0.0.0", help="web UI address (default all interfaces)")
     p.add_argument("--port", type=int, default=8080, help="web UI port (default 8080)")
     p.add_argument("--no-web", action="store_true", help="do not start the web UI")
+    p.add_argument("--network", action="store_true",
+                   help="let the web UI change this computer's network through NetworkManager "
+                        "(for the Pi; headless runs simulate it)")
     p.add_argument("--password", default=os.environ.get("LAGMAN_PASSWORD"),
                    help="web UI password (or LAGMAN_PASSWORD); any user name is accepted")
     p.add_argument("--snapshot", type=Path, metavar="PNG",
@@ -131,7 +135,7 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
         from ..web.server import ControlServer
 
         server = ControlServer(engine, PresetStore(args.presets_dir), args.host, args.port,
-                               args.password)
+                               args.password, _network(args, headless=renderer is None))
         server.start()
         print(f"web control on http://{args.host}:{server.port}/", file=sys.stderr)
 
@@ -193,6 +197,23 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
         print(f"{mon.frames} frames, {mon.repeats} repeated refreshes, "
               f"{mon.early} early presents; logs in {args.log_dir}", file=sys.stderr)
     return 0
+
+
+def _network(args: argparse.Namespace, headless: bool):
+    """Network control for the web UI, or None to leave it off."""
+    from ..web.network import NetworkControl, NMBackend, SimulatedNetwork
+
+    if headless:
+        return NetworkControl(SimulatedNetwork(),
+                              note="Simulated network: nothing on this computer is changed.")
+    if not args.network:
+        return None
+    if not shutil.which("nmcli"):
+        print("warning: --network needs NetworkManager (nmcli); network control is off",
+              file=sys.stderr)
+        return NetworkControl(None, note="Network control needs NetworkManager (nmcli), "
+                                         "which is not installed.")
+    return NetworkControl(NMBackend(), note="Changes go through NetworkManager.")
 
 
 def _handle_keys(engine: Engine) -> bool:

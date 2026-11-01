@@ -28,7 +28,8 @@ uv run lagman-generator --windowed 1280x720 --run             # window, for deve
 uv run lagman-generator --snapshot frame.png --count 123456   # render one frame, no display
 ```
 
-Keys: Space start/stop a run, R reset, Esc or Q quit. Settings can also come from a JSON
+Keys: Space start/stop a run, R reset, Esc or Q quit. On the Pi, `deploy/install-pi.sh`
+starts it at boot and lets the web UI change the network (below). Settings can also come from a JSON
 file (`--config`), in the same format as the presets the web UI saves.
 
 Each run (Start to Stop) writes a JSON Lines log to `runs/` with the settings, slate, start
@@ -161,6 +162,52 @@ build pygame-ce against the system SDL (`libsdl2-dev` and friends, `python3-dev`
 The generator warns if the display reports a different rate or the measured rate is off. Still to be checked on hardware: 120Hz output, that present
 blocks on vsync under KMS, switching display modes through SDL under KMS, and a clean
 one-hour run (SPEC.md, "Proposed acceptance checks").
+
+## Start at boot (Pi)
+
+```sh
+cd ~/lag-man            # wherever the repo is
+uv sync --extra generator
+deploy/install-pi.sh
+```
+
+This installs a systemd service, `lagman-generator`, that starts the generator on the
+console at boot (KMS, no desktop) with network control on, and restarts it if it crashes.
+It runs as the user who ran the script, from the repo folder, so run logs and presets stay
+in `runs/` and `presets/` there. Set a web UI password, or extra options such as
+`--mode 1920x1080@50`, in `/etc/default/lagman-generator`, then
+`sudo systemctl restart lagman-generator`.
+
+- Logs: `journalctl -u lagman-generator -f`
+- Esc or Q on the Pi's keyboard quits it until the next boot or restart.
+- Stop it before running the generator by hand (`sudo systemctl stop lagman-generator`),
+  since only one program can drive the display.
+- After `git pull`: `uv sync --extra generator && sudo systemctl restart lagman-generator`.
+
+## Network
+
+With `--network` (the service turns it on), the web UI's Network card changes the Pi's
+network through NetworkManager:
+
+- **Wired:** DHCP, or a static address, gateway and DNS.
+- **Join a network:** a Wi-Fi network's name and password (WPA2 or WPA2/WPA3 Personal),
+  with DHCP or a static address. Scan lists the networks in range.
+- **Hotspot:** the Pi makes its own Wi-Fi network, keeps a fixed address (192.168.4.1 by
+  default) and gives devices that join an address by DHCP. Join it, then open
+  `http://192.168.4.1:8080/`.
+
+A change is applied a moment after you press Apply, and may cut off the page you pressed it
+from. Reconnect at the new address (the hostname, `http://<hostname>.local:8080/`, often
+works too) and press Keep within two minutes; otherwise the previous settings come back.
+The Wi-Fi mode chosen last is the one used at boot. Rebooting during the two minutes keeps
+the new settings, so if you lose the Pi, reach it over the other port, or log in at its
+keyboard (Q quits the generator) and run `nmtui`.
+
+The generator only edits its own NetworkManager profiles (`lagman-wired`, `lagman-wifi`,
+`lagman-hotspot`); the ones Raspberry Pi Imager made are left alone. The hotspot needs the
+Wi-Fi country set (`sudo raspi-config`, Localisation). Anyone who can open the web UI can
+change the network, so set a password. Headless runs simulate the network, so the card
+can be tried anywhere.
 
 ## Development
 

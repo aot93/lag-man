@@ -10,6 +10,7 @@ import pytest
 from lagman.core.config import GeneratorConfig
 from lagman.core.display import DisplayMode, SimulatedDisplay
 from lagman.generator.engine import Engine
+from lagman.web.network import NetworkControl, SimulatedNetwork
 from lagman.web.presets import PresetStore
 from lagman.web.server import ControlServer, deep_merge
 
@@ -30,7 +31,13 @@ def tv(tmp_path):
     yield from _server(tmp_path, display=SimulatedDisplay(modes[0], modes))
 
 
-def _server(tmp_path, password=None, display=None):
+@pytest.fixture
+def netsrv(tmp_path):
+    control = NetworkControl(SimulatedNetwork(), confirm_s=5, delay_s=0.01)
+    yield from _server(tmp_path, network=control)
+
+
+def _server(tmp_path, password=None, display=None, network=None):
     eng = Engine(GeneratorConfig(), 1920, 1080, tmp_path / "runs", display=display)
     stop = threading.Event()
     t = [0]
@@ -44,7 +51,8 @@ def _server(tmp_path, password=None, display=None):
 
     th = threading.Thread(target=loop, daemon=True)
     th.start()
-    server = ControlServer(eng, PresetStore(tmp_path / "presets"), "127.0.0.1", 0, password)
+    server = ControlServer(eng, PresetStore(tmp_path / "presets"), "127.0.0.1", 0, password,
+                           network)
     server.start()
     yield f"http://127.0.0.1:{server.port}", eng
     server.stop()
@@ -162,6 +170,34 @@ def test_no_display_to_set(srv):
     code, info, _ = req(base, "GET", "/api/display")
     assert code == 200 and not info["can_set"] and info["modes"] == []
     assert req(base, "PUT", "/api/display", {"mode": "1920x1080@50"})[0] == 409
+
+
+def test_network(netsrv):
+    base, _ = netsrv
+    code, info, _ = req(base, "GET", "/api/network")
+    assert code == 200 and info["available"] and info["devices"]["wifi"]["ssid"] == "Studio"
+    assert req(base, "GET", "/api/network/scan")[1]["networks"][0]["ssid"] == "Studio"
+    assert req(base, "PUT", "/api/network/wired", {"method": "manual"})[0] == 400
+    assert req(base, "PUT", "/api/network/zigbee", {})[0] == 404
+    code, info, _ = req(base, "PUT", "/api/network/wired",
+                        {"method": "manual", "address": "192.168.1.60/24"})
+    assert code == 200 and info["pending"]["state"] == "applying"
+    assert req(base, "PUT", "/api/network/wired", {"method": "auto"})[0] == 409
+    for _ in range(100):
+        info = req(base, "GET", "/api/network")[1]
+        if info["pending"]["state"] == "waiting":
+            break
+        time.sleep(0.01)
+    assert info["devices"]["ethernet"]["addresses"] == ["192.168.1.60/24"]
+    assert req(base, "POST", "/api/network/confirm")[1]["pending"] is None
+    assert req(base, "POST", "/api/network/revert")[0] == 409
+
+
+def test_network_control_off(srv):
+    base, _ = srv
+    code, info, _ = req(base, "GET", "/api/network")
+    assert code == 200 and not info["available"] and "--network" in info["note"]
+    assert req(base, "PUT", "/api/network/wired", {"method": "auto"})[0] == 503
 
 
 def test_deep_merge():

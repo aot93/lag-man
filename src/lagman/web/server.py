@@ -20,6 +20,11 @@ API (all JSON):
     DELETE /api/presets/<name>
     GET    /api/runs                      run logs, newest first
     GET    /api/runs/<id>                 one run log (JSON Lines)
+    GET    /api/network                   ports, saved settings, a change awaiting confirmation
+    GET    /api/network/scan              Wi-Fi networks in range
+    PUT    /api/network/<kind>            wired | client | hotspot; applied a moment later
+    POST   /api/network/confirm           keep the last change
+    POST   /api/network/revert            put the previous settings back now
 """
 
 from __future__ import annotations
@@ -37,11 +42,14 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..generator.engine import CommandError, Engine
+from .network import NetworkBusy, NetworkControl, NetworkError
 from .presets import PresetStore
 
 STATIC_DIR = Path(__file__).parent / "static"
 MAX_BODY = 256 * 1024
 _RUN_ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}$")
+NETWORK_OFF = ("Network control is off. Start the generator with --network to change the "
+               "network from here (the Pi service does).")
 
 
 class ApiError(Exception):
@@ -62,10 +70,12 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 
 class ControlServer:
     def __init__(self, engine: Engine, presets: PresetStore, host: str = "0.0.0.0",
-                 port: int = 8080, password: str | None = None):
+                 port: int = 8080, password: str | None = None,
+                 network: NetworkControl | None = None):
         self.engine = engine
         self.presets = presets
         self.password = password
+        self.network = network or NetworkControl(None, note=NETWORK_OFF)
         handler = type("Handler", (_Handler,), {"app": self})
         self.httpd = ThreadingHTTPServer((host, port), handler)
         self.httpd.daemon_threads = True
@@ -139,6 +149,16 @@ class ControlServer:
                 return {"runs": self._runs()}, {}
             case "GET", ["runs", run_id]:
                 return self._run_file(run_id), {}
+            case "GET", ["network"]:
+                return self.network.info(), {}
+            case "GET", ["network", "scan"]:
+                return {"networks": self._net(self.network.scan)}, {}
+            case "PUT", ["network", "wired" | "client" | "hotspot" as kind]:
+                return self._net(lambda: self.network.apply(kind, _obj(body))), {}
+            case "POST", ["network", "confirm"]:
+                return self._net(self.network.confirm), {}
+            case "POST", ["network", "revert"]:
+                return self._net(self.network.revert), {}
         raise ApiError(HTTPStatus.NOT_FOUND, f"no route for {method} {path}")
 
     def _submit(self, name: str, timeout: float = 2.0, **args: Any) -> Any:
@@ -148,6 +168,18 @@ class ControlServer:
             raise ApiError(HTTPStatus.CONFLICT, str(e)) from None
         except TimeoutError as e:
             raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, str(e)) from None
+
+    def _net(self, fn):
+        try:
+            return fn()
+        except ValueError as e:
+            raise ApiError(HTTPStatus.BAD_REQUEST, str(e)) from None
+        except NetworkBusy as e:
+            raise ApiError(HTTPStatus.CONFLICT, str(e)) from None
+        except NetworkError as e:
+            status = (HTTPStatus.SERVICE_UNAVAILABLE if self.network.backend is None
+                      else HTTPStatus.BAD_GATEWAY)
+            raise ApiError(status, str(e)) from None
 
     def _apply(self, config: dict[str, Any]) -> dict[str, Any]:
         return self._submit("set_config", config=config)

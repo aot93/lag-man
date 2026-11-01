@@ -29,6 +29,13 @@
   </div>
   <div class="alert" id="error" role="alert" hidden><p id="error-text"></p></div>
   <div class="alert warn" id="layout-alert" hidden><p id="layout-alert-text"></p></div>
+  <div class="alert warn" id="net-alert" role="status" hidden>
+    <p><strong id="net-alert-title"></strong> <span id="net-alert-detail"></span></p>
+    <div class="row" id="net-alert-actions">
+      <button class="btn small primary" id="net-keep" type="button">Keep</button>
+      <button class="btn small" id="net-revert" type="button">Revert now</button>
+    </div>
+  </div>
   <div class="alert" id="display-alert" role="status" hidden>
     <p><strong id="display-alert-title"></strong> <span id="display-alert-detail"></span></p>
   </div>
@@ -179,6 +186,66 @@
           </table>
         </div>
         <p class="empty" id="runs-empty">No runs yet.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="section">Network</h2>
+        <div class="tablewrap">
+          <table class="data">
+            <thead><tr><th>Port</th><th>Status</th><th>Address</th></tr></thead>
+            <tbody id="net-ports"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="net-reach"></p>
+        <div class="alert" id="net-error" role="alert" hidden><p id="net-error-text"></p></div>
+        <p class="hint" id="net-note"></p>
+        <fieldset class="net-forms" id="net-forms">
+          <div class="sub">Wired</div>
+          <div class="form">
+          <label>Addressing
+            <select id="net-w-method"><option value="auto">DHCP</option><option value="manual">Static</option></select>
+          </label>
+          <label class="net-w-static">Address<input id="net-w-address" class="mono" placeholder="192.168.1.50/24" spellcheck="false"></label>
+          <label class="net-w-static">Gateway<input id="net-w-gateway" class="mono" placeholder="192.168.1.1" spellcheck="false"></label>
+          <label class="net-w-static">DNS<input id="net-w-dns" class="mono" placeholder="192.168.1.1, 1.1.1.1" spellcheck="false"></label>
+          </div>
+          <div class="row"><button class="btn primary small" id="net-w-apply" type="button">Apply wired</button></div>
+
+          <div class="sub">Wi-Fi</div>
+          <div class="seg" id="net-wifi-mode" role="group" aria-label="Wi-Fi mode">
+            <button class="btn" type="button" value="client">Join a network</button>
+            <button class="btn" type="button" value="hotspot">Hotspot</button>
+          </div>
+          <div id="net-client" class="mt-s">
+            <div class="form">
+              <label>Network (SSID)<input id="net-c-ssid" list="net-c-scan" maxlength="32" spellcheck="false" autocomplete="off"></label>
+              <label>Password<input id="net-c-password" type="password" maxlength="63" autocomplete="new-password"></label>
+          <label>Addressing
+            <select id="net-c-method"><option value="auto">DHCP</option><option value="manual">Static</option></select>
+          </label>
+          <label class="net-c-static">Address<input id="net-c-address" class="mono" placeholder="192.168.1.50/24" spellcheck="false"></label>
+          <label class="net-c-static">Gateway<input id="net-c-gateway" class="mono" placeholder="192.168.1.1" spellcheck="false"></label>
+          <label class="net-c-static">DNS<input id="net-c-dns" class="mono" placeholder="192.168.1.1, 1.1.1.1" spellcheck="false"></label>
+            </div>
+            <datalist id="net-c-scan"></datalist>
+            <div class="row">
+              <button class="btn primary small" id="net-c-apply" type="button">Join</button>
+              <button class="btn small" id="net-c-scan-btn" type="button">Scan</button>
+              <span class="hint" id="net-c-scan-hint"></span>
+            </div>
+          </div>
+          <div id="net-hotspot" class="mt-s" hidden>
+            <div class="form">
+              <label>Network name (SSID)<input id="net-h-ssid" maxlength="32" spellcheck="false" autocomplete="off"></label>
+              <label>Password<input id="net-h-password" type="password" maxlength="63" autocomplete="new-password"></label>
+              <label>Band<select id="net-h-band"><option value="2.4">2.4 GHz</option><option value="5">5 GHz</option></select></label>
+              <label>Pi address<input id="net-h-address" class="mono" placeholder="192.168.4.1/24" spellcheck="false"></label>
+            </div>
+            <div class="row"><button class="btn primary small" id="net-h-apply" type="button">Start hotspot</button></div>
+            <p class="hint">The Pi makes its own Wi-Fi network and gives devices that join an address by DHCP. It keeps the address above, so the control page is always at that address on port 8080.</p>
+          </div>
+        </fieldset>
+        <p class="hint">After a change, reconnect at the new address and press Keep within two minutes, or the previous settings come back. Set a web UI password before using this on a shared network.</p>
       </section>
     </div>
   </div>
