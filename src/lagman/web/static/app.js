@@ -511,6 +511,7 @@ async function loadRuns() {
 let network = null;
 let netFilled = false;
 let netTimer = null;
+let netFormError = ""; // a rejected Apply, kept until the next one succeeds
 
 function fmtCountdown(s) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -585,7 +586,7 @@ function renderNetwork(n) {
     return tr;
   }));
   $("net-reach").textContent = n.hostname ? `Also reachable as http://${n.hostname}.local:${location.port || 80}/ where the network supports it.` : "";
-  const err = n.error || n.last_error;
+  const err = netFormError || n.error || n.last_error;
   $("net-error").hidden = !err;
   $("net-error-text").textContent = err || "";
   $("net-note").textContent = n.note;
@@ -632,7 +633,17 @@ async function applyNetwork(kind, body) {
   const ok = window.confirm(`Apply these ${kind === "client" ? "Wi-Fi" : kind} settings?\n\n`
     + `This page may lose its connection. Reconnect at ${newAddressHint(kind, body)} and press Keep within two minutes, or the previous settings come back.`);
   if (!ok) return;
-  const out = await act(() => api("PUT", `network/${kind}`, body));
+  let out;
+  try {
+    out = await api("PUT", `network/${kind}`, body);
+  } catch (e) {
+    // Shown in the card, beside the form, not in the page alert out of view.
+    netFormError = e.message;
+    if (network) renderNetwork(network);
+    $("net-error").scrollIntoView({ block: "nearest" });
+    return;
+  }
+  netFormError = "";
   if (out) {
     network = out;
     netFilled = false; // refill from the saved settings once the change settles

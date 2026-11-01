@@ -300,3 +300,36 @@ def test_changes_and_failures_are_logged():
     timers.run()
     assert any("hotspot" in line for line in lines)
     assert any("No suitable device found" in line for line in lines)
+
+
+class FakeEngine:
+    def __init__(self):
+        self.sent = []
+
+    def submit(self, name, timeout=2.0, **args):
+        self.sent.append((name, args))
+
+
+def test_network_slate_sends_lines_only_when_they_change():
+    from lagman.web.network import NetworkSlate
+
+    control = NetworkControl(SimulatedNetwork(), schedule=FakeTimers(), log=lambda m: None)
+    eng = FakeEngine()
+    slate = NetworkSlate(eng, control, 8080)
+    slate.poll_once()
+    slate.poll_once()
+    assert len(eng.sent) == 1
+    name, args = eng.sent[0]
+    assert name == "set_network" and args["lines"][0] == "WIRED     http://192.168.1.50:8080/"
+    control.backend.state["devices"]["wifi"].update(mode="hotspot", ssid="lag-man",
+                                                    addresses=["192.168.4.1/24"])
+    slate.poll_once()
+    assert "HOTSPOT   http://192.168.4.1:8080/  lag-man" in eng.sent[-1][1]["lines"]
+
+
+def test_network_slate_without_network_control_shows_the_main_address():
+    from lagman.web.network import NetworkSlate
+
+    eng = FakeEngine()
+    NetworkSlate(eng, NetworkControl(None), 8080, address=lambda: "10.1.2.3").poll_once()
+    assert eng.sent[0][1]["lines"][0] == "ADDRESS   http://10.1.2.3:8080/"

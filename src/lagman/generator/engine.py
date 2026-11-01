@@ -83,6 +83,10 @@ class Engine:
         self._unacked = 0
         self._warnings: list[str] = []
         self._slate: tuple[str, ...] = ()
+        # Where to find the control page: shown while idle from start until the first run,
+        # and again after the network changes. Never part of a run's slate.
+        self._net_lines: tuple[str, ...] = ()
+        self._net_shown = True
         self._config_rev = 0
         self._relayout()
         self._restore_mode(mode_request)
@@ -182,6 +186,7 @@ class Engine:
             raise CommandError("a run is already in progress")
         self.run_id = new_run_id(self._now())
         self.run_log = RunLog(self.log_dir, self.run_id)
+        self._net_shown = False
         self._refresh_slate(force=True)
         self.run_log.write("run_start", run_id=self.run_id, run_number=self.run_number,
                            config=self.cfg.to_dict(), start_count=self.clock.count,
@@ -234,6 +239,13 @@ class Engine:
         self._refresh_slate(force=True)
         self._relayout()
         return cfg.to_dict()
+
+    def _cmd_set_network(self, lines: list[str] | tuple[str, ...]) -> None:
+        lines = tuple(lines)
+        if lines != self._net_lines:
+            self._net_lines = lines
+            self._net_shown = True
+            self._refresh_slate(force=True)
 
     def _cmd_ack_warnings(self) -> None:
         self._unacked = 0
@@ -354,13 +366,19 @@ class Engine:
 
     def _slate_visible(self) -> bool:
         mode = self.cfg.slate.mode
-        return mode == "always" or (mode == "pre_roll" and self.state != RUNNING)
+        return (mode == "always" or (mode == "pre_roll" and self.state != RUNNING)
+                or self._showing_network())
+
+    def _showing_network(self) -> bool:
+        return self._net_shown and self.state == IDLE and bool(self._net_lines)
 
     def _refresh_slate(self, force: bool = False) -> None:
         if self.cfg.slate.mode == "off":
             lines: tuple[str, ...] = ()
         else:
             lines = slate_lines(self.cfg, self.run_number, self._now())
+        if self._showing_network():
+            lines += self._net_lines
         if force or lines != self._slate:
             self._slate = lines
             self._relayout()

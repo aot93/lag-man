@@ -75,6 +75,7 @@ A slate is a block of text shown on screen so that any recording identifies itse
 - Can be toggled on and off, and can be shown for a set time before a run starts (for example five seconds) or throughout.
 - Slate text is plain and high contrast so it is readable on the control camera recording and by OCR.
 - Each slate is also written to the run's log file, so the recording and the log can be matched later.
+- From start until the first run, and again after the network changes, the slate area also shows the control page's address on each network port (and the Wi-Fi or hotspot name), so the generator can be found without a keyboard. These lines are never shown during a run or logged.
 
 ## Web control front end
 

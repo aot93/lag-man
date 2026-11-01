@@ -138,6 +138,10 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
                                args.password, _network(args, headless=renderer is None))
         server.start()
         print(f"web control on http://{args.host}:{server.port}/", file=sys.stderr)
+        from ..web.network import NetworkSlate
+
+        net_slate = NetworkSlate(engine, server.network, server.port)
+        net_slate.start()
 
     if args.run:
         engine.apply("start")
@@ -191,6 +195,7 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
         pass
     finally:
         if server:
+            net_slate.stop()
             server.stop()
         engine.close()
         mon = engine.monitor

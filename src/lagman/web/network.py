@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core import network as net
+from ..core.slate import network_lines as slate_network_lines
 
 KINDS = {"wired": "wired", "client": "Wi-Fi", "hotspot": "hotspot"}
 _PROFILE = {"wired": net.WIRED, "client": net.WIFI, "hotspot": net.HOTSPOT}
@@ -411,3 +412,57 @@ class NetworkControl:
             token = p["token"]
         self._schedule(self.delay_s, lambda: self._finish(token, None))
         return self.info()
+
+
+# ---- on screen --------------------------------------------------------------------------
+
+
+def primary_address() -> str | None:
+    """The address of the default route, without NetworkManager. No packet is sent."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("192.0.2.1", 9))  # TEST-NET-1: never routed anywhere
+            return s.getsockname()[0]
+        except OSError:
+            return None
+
+
+class NetworkSlate:
+    """Keeps the generator's on-screen network lines current. Reads the network on its own
+    thread (nmcli is too slow for the render loop) and hands the lines to the engine."""
+
+    def __init__(self, engine, control: NetworkControl, port: int, interval: float = 5.0,
+                 address: Callable[[], str | None] = primary_address):
+        self.engine, self.control, self.port = engine, control, port
+        self.interval = interval
+        self._address = address
+        self._lines: tuple[str, ...] | None = None
+        self._stop = threading.Event()
+
+    def poll_once(self) -> None:
+        info = self.control.info()
+        if not info["devices"]:
+            address = self._address()
+            info["devices"] = {"other": {"addresses": [address] if address else []}}
+        lines = slate_network_lines(info, self.port)
+        if lines != self._lines:
+            self._lines = lines
+            try:
+                self.engine.submit("set_network", lines=lines)
+            except TimeoutError:
+                pass  # render loop not started yet; the command stays queued for it
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.poll_once()
+            except Exception as e:  # keep trying; the screen just keeps its last lines
+                print(f"network: could not update the on-screen address: {e}",
+                      file=sys.stderr)
+            self._stop.wait(self.interval)
+
+    def start(self) -> None:
+        threading.Thread(target=self._loop, name="lagman-netslate", daemon=True).start()
+
+    def stop(self) -> None:
+        self._stop.set()

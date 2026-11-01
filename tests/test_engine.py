@@ -235,3 +235,38 @@ def test_display_info_lists_usable_modes(tmp_path):
     assert info["can_set"] and info["current"] == "1920x1080@60"
     assert [(m["mode"], m["rate_sets"]) for m in info["modes"]] == [
         ("1920x1080@60", ["60"]), ("3840x2160@50", ["50"]), ("1920x1080@50", ["50"])]
+
+
+def _texts(eng):
+    return [op["text"] for op in eng.preview()["ops"] if op["type"] == "text"]
+
+
+def test_network_lines_show_at_start_until_a_run(tmp_path):
+    eng, loop = make(tmp_path)  # slate off
+    lines = ("WIRED     http://192.168.1.50:8080/",)
+    call(eng, loop, "set_network", lines=lines)
+    loop.frames(1)
+    assert lines[0] in _texts(eng)
+    call(eng, loop, "start")
+    loop.frames(1)
+    assert lines[0] not in _texts(eng)
+    call(eng, loop, "stop")
+    loop.frames(1)
+    assert lines[0] not in _texts(eng)  # not again after a run...
+    new = ("HOTSPOT   http://192.168.4.1:8080/  lag-man",)
+    call(eng, loop, "set_network", lines=new)
+    loop.frames(1)
+    assert new[0] in _texts(eng)  # ...unless the network changes
+    records = read_run_log(next((tmp_path / "runs").glob("*.jsonl")))
+    assert not any("http" in line for line in records[0]["slate"])
+
+
+def test_network_lines_join_the_slate(tmp_path):
+    eng, loop = make(tmp_path)
+    cfg = eng.cfg.to_dict()
+    cfg["slate"]["mode"] = "always"
+    call(eng, loop, "set_config", config=cfg)
+    call(eng, loop, "set_network", lines=("WIRED     http://192.168.1.50:8080/",))
+    loop.frames(1)
+    texts = _texts(eng)
+    assert any(t.startswith("CLOCK") for t in texts) and any("http" in t for t in texts)

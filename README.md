@@ -196,6 +196,11 @@ network through NetworkManager:
   default) and gives devices that join an address by DHCP. Join it, then open
   `http://192.168.4.1:8080/`.
 
+The generator's screen shows where to find the control page (each port's address, the
+Wi-Fi or hotspot name, and `<hostname>.local`) from start until the first run starts, even
+with the slate off, and again whenever an address changes. It is never shown during a run
+or written to the run log.
+
 A change is applied a moment after you press Apply, and may cut off the page you pressed it
 from. Reconnect at the new address (the hostname, `http://<hostname>.local:8080/`, often
 works too) and press Keep within two minutes; otherwise the previous settings come back.
