@@ -55,6 +55,9 @@ class ApiError(Exception):
         self.status = status
 
 
+GENERATOR_PORT = 8080  # lagman-generator --port default
+
+
 def bad(message: str) -> ApiError:
     return ApiError(HTTPStatus.BAD_REQUEST, message)
 
@@ -429,12 +432,7 @@ class App:
     # ---- generator ----
 
     def _gen_request(self, url: str, password: str | None, path: str) -> bytes:
-        base = url.strip().rstrip("/")
-        if not base.startswith(("http://", "https://")):
-            base = "http://" + base
-        parts = urlsplit(base)
-        if not parts.hostname:
-            raise bad("enter the generator's address, for example 192.168.1.50:8080")
+        base = generator_base(url)
         req = urllib.request.Request(base + path)
         if password:
             token = base64.b64encode(f"lagman:{password}".encode()).decode()
@@ -471,6 +469,21 @@ class App:
             path.unlink()
             raise bad("the generator sent something that is not a run log")
         return {"path": str(path)}
+
+
+def generator_base(url: str) -> str:
+    """The generator's base URL from what the user typed; the port defaults to the
+    generator's own default."""
+    text = url.strip()
+    parts = urlsplit(text if "://" in text else "http://" + text)
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if parts.scheme not in ("http", "https") or not parts.hostname or port == -1:
+        raise bad("enter the generator's address, for example 192.168.1.50:8080")
+    netloc = parts.netloc if port else f"{parts.netloc}:{GENERATOR_PORT}"
+    return f"{parts.scheme}://{netloc}{parts.path.rstrip('/')}"
 
 
 def _iso(ts: float) -> str:

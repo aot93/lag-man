@@ -260,3 +260,15 @@ def test_old_cam_lag_workspace_is_carried_over(tmp_path, monkeypatch):
     assert ws == tmp_path / "Documents" / "lag-man"
     assert (ws / "workspace.json").is_file() and not (tmp_path / "Documents" / "cam-lag").exists()
     assert app_mod.default_workspace() == ws  # nothing more to move
+
+
+def test_generator_address_defaults_to_its_port():
+    from lagman.analysis.app import ApiError, generator_base
+
+    assert generator_base("192.168.10.101") == "http://192.168.10.101:8080"
+    assert generator_base(" lag-man.local/ ") == "http://lag-man.local:8080"
+    assert generator_base("192.168.10.101:9000") == "http://192.168.10.101:9000"
+    assert generator_base("http://[fe80::1]") == "http://[fe80::1]:8080"
+    for bad_url in ("", "http://", "host:port"):
+        with pytest.raises(ApiError):
+            generator_base(bad_url)

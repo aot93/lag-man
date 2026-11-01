@@ -292,7 +292,7 @@ function joinPath(dir, name) {
 }
 
 function generatorDialog(recId) {
-  const url = h("input", { type: "text", value: app?.generator_url || "", placeholder: "192.168.1.50:8080", spellcheck: "false" });
+  const url = h("input", { type: "text", value: app?.generator_url || "", placeholder: "192.168.1.50", spellcheck: "false" });
   const pw = h("input", { type: "password", placeholder: "only if one is set", autocomplete: "off" });
   const list = h("div", {});
   async function listRuns() {
@@ -319,7 +319,7 @@ function generatorDialog(recId) {
       })))));
   }
   openDialog("Run logs from the generator",
-    h("p", { class: "steps-line", text: "The generator serves its run logs on the network. Fetched logs are saved in the workspace." }),
+    h("p", { class: "steps-line", text: "The generator serves its run logs on the network, on port 8080 unless it was started with --port. Fetched logs are saved in the workspace." }),
     h("div", { class: "form" }, h("label", {}, "Generator address", url), h("label", {}, "Password", pw)),
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: listRuns }, "List runs")),
     h("div", { class: "mt-s" }, list));
