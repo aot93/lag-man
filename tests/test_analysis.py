@@ -265,3 +265,17 @@ def test_capture_rate_is_measured_from_the_source_strip(clip):
     from lagman.analysis.pipeline import run as pipeline_run
     result = pipeline_run(path, setup, wrong, path.parent / "out-150")
     assert any("100 fps" in w for w in result.warnings)
+
+
+def test_latency_in_frames_and_sound_distance(clip):
+    path, setup, _, log = clip
+    info = RunInfo.from_run_log(log)
+    s = summarise(run(path, setup, info), info)
+    # The test camera rates of the 50Hz rate set; a frame is 40 ms at 25 fps.
+    assert set(s.in_frames) == {"25", "50"}
+    assert s.in_frames["25"]["median"] == pytest.approx(s.median_ms / 40, abs=0.01)
+    assert s.in_frames["50"]["mean"] == pytest.approx(s.mean_ms / 20, abs=0.01)
+    # Sound covers 343 m a second: the distance at which audio is as late as the picture.
+    assert s.sound_m["median"] == pytest.approx(s.median_ms * 0.343, abs=0.1)
+    us = RunInfo(**{**info.__dict__, "rate_set": "60"})
+    assert set(summarise(run(path, setup, info), us).in_frames) == {"30", "60"}

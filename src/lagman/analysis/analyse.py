@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import statistics
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 from ..core import strip
+from ..core.rates import RATE_SETS
 from ..core.strip import DecodeStatus, count_difference
 from ..core.timecode import to_timecode
 from .roi import read
@@ -26,6 +27,7 @@ UNREADABLE = "unreadable"
 SUSPECT = "suspect"
 IDLE = "idle"  # the generator's clock was not counting: before Start or after Stop
 STATUSES = (OK, TRANSITION, UNREADABLE, SUSPECT, IDLE)
+SPEED_OF_SOUND = 343.0  # m/s in air at about 20 °C
 
 
 @dataclass(frozen=True)
@@ -146,6 +148,11 @@ class Summary:
     last_tc: str
     # Capture rate the source strip shows: the refresh over the ticks it advances per frame.
     measured_capture_fps: float | None = None
+    # Latency in frames of each test camera rate of the rate set: {"25": {"median", "mean"}}
+    in_frames: dict[str, dict[str, float]] = field(default_factory=dict)
+    # How far sound travels in the latency: audio from that far away arrives in step with
+    # the picture. {"median", "mean"} in metres.
+    sound_m: dict[str, float] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         return {k: (round(v, 3) if isinstance(v, float) else v)
@@ -188,7 +195,24 @@ def summarise(samples: list[Sample], info: RunInfo) -> Summary:
         source_breaks=breaks, generator_events=gen_events,
         first_tc=_tc(good[0], info) if good else "", last_tc=_tc(good[-1], info) if good else "",
         measured_capture_fps=measure_capture_fps(samples, info),
+        **_equivalents(statistics.median(lat) if lat else None,
+                       statistics.fmean(lat) if lat else None, info),
     )
+
+
+def _equivalents(median_ms: float | None, mean_ms: float | None,
+                 info: RunInfo) -> dict[str, Any]:
+    """The latency in test camera frames and as a distance sound travels."""
+    if median_ms is None or mean_ms is None:
+        return {}
+    rs = RATE_SETS.get(info.rate_set)
+    rates = rs.test_camera_fps if rs else ()
+    return {
+        "in_frames": {str(fps): {"median": round(median_ms * fps / 1000, 2),
+                                 "mean": round(mean_ms * fps / 1000, 2)} for fps in rates},
+        "sound_m": {"median": round(median_ms * SPEED_OF_SOUND / 1000, 1),
+                    "mean": round(mean_ms * SPEED_OF_SOUND / 1000, 1)},
+    }
 
 
 def measure_capture_fps(samples: list[Sample], info: RunInfo,

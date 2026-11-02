@@ -59,6 +59,11 @@ def cmd_analyse(args: argparse.Namespace) -> int:
           f"min {summary.min_ms} ms, max {summary.max_ms} ms; flagged {c['transition']} "
           f"mid-change, {c['unreadable']} unreadable, {c['suspect']} suspect, "
           f"{c['idle']} with the clock stopped")
+    if summary.in_frames and summary.sound_m:
+        frames = ", ".join(f"{v['median']:.1f} frames at {fps} fps"
+                           for fps, v in summary.in_frames.items())
+        print(f"median {frames}; sound travels {summary.sound_m['median']:.0f} m in that "
+              f"time")
     for name, path in result.paths.items():
         print(f"{name}: {path}")
     return 0 if summary.n else 1

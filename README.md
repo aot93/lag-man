@@ -134,6 +134,9 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
   frame interval (1/500 s, say) catches fewer frames mid-change.
 - **Latency:** source count minus wall count, times the tick (10ms at 100Hz, 8.333ms at
   120Hz). The resolution is one tick.
+- **Equivalents:** the median and mean are also given in frames at the rate set's test
+  camera rates (25 and 50fps, or 30 and 60fps), and as the distance sound travels in that
+  time at 343 m/s: audio from that far away arrives in step with the picture.
 - **Flagged frames:** these are left out of the figures and listed in the report:
   - a strip caught mid-change
   - a strip that cannot be read (glare, moiré)

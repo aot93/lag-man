@@ -57,6 +57,21 @@ def summary_json(summary: Summary, info: RunInfo, video: str) -> dict[str, Any]:
     }
 
 
+def _equivalents_html(summary: Summary) -> str:
+    """Key facts for the median latency in test camera frames and as a sound distance."""
+    if not summary.in_frames or not summary.sound_m:
+        return ""
+    cells = "".join(
+        f'<div class="kf"><div class="n">{v["median"]:.1f} frames</div><div class="l">Median '
+        f'at {fps} fps · mean {v["mean"]:.1f}</div></div>'
+        for fps, v in summary.in_frames.items())
+    m = summary.sound_m
+    return (f'<section class="keyfacts">{cells}<div class="kf"><div class="n">'
+            f'{m["median"]:.0f} m</div><div class="l">Sound travels this far in the median '
+            f'latency (343 m/s): audio from that far away is in step with the picture'
+            f'</div></div></section>')
+
+
 def pick_review(samples: Sequence[Sample], limit_flagged: int = 8) -> list[tuple[str, Sample]]:
     """Frames worth a look: the extremes and median of the good samples, then flagged ones."""
     good = sorted((s for s in samples if s.status == OK), key=lambda s: s.latency_ms)
@@ -274,6 +289,7 @@ code strips. Frames caught mid-change or unreadable are flagged and left out of 
 <div class="kf"><div class="n">{summary.n}</div><div class="l">Good samples of {summary.frames}
 frames · σ {_fmt(summary.stdev_ms)}</div></div>
 </section>
+{_equivalents_html(summary)}
 <div class="two">
 <section><h2>Slate</h2><table class="kv">{slate_rows}</table></section>
 <section><h2>Recording</h2><table class="kv">{meta_rows}</table></section>
