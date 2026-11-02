@@ -97,8 +97,13 @@ the whole workflow happens there:
 2. **Attach its run log.** Fetch it from the generator over the network, or pick the `.jsonl`
    file. Logs in the workspace and next to the video are listed, closest in time first.
    Without a run log, choose the rate set by hand.
-3. **Mark the regions** on a frame: four corners per strip, checked live, then saved as a
-   named setup that later recordings from the same camera position can reuse.
+3. **Mark the regions** on a frame: click near the four corners of each strip. Each region
+   is then fitted automatically, using frames from across the recording. The ends snap to
+   the white reference cells, which takes out a few pixels of error, and the cell grid
+   bows to follow lens distortion. Ticks show where each cell edge is expected. Drag a
+   corner, or click it and nudge it with the arrow keys (Shift for bigger steps), and
+   **Fit to cells** fits again. Save the regions as a named setup that later recordings
+   from the same camera position can reuse.
 4. **Analyse** in the background, with a progress bar and a cancel button.
 5. **Review the results:** figures, charts, checks and every sample. Click a dot, a flag or
    a row to see that frame with the regions drawn on, and step frame by frame. Open the
@@ -121,7 +126,12 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
 
 - **Timing:** the real capture rate comes from the rate set (100fps or 120fps), not from
   the file, because the S5 writes high-frame-rate footage into a 50p or 60p file. Override
-  it with `--capture-fps` if needed.
+  it with `--capture-fps`, or in the app's recording details. The analysis also measures it
+  from how fast the source strip advances, and warns if it differs. The first S5 test was
+  shot at 150fps. Latency figures do not depend on it; times do.
+- **Reading the strips:** cells are measured in linear light, so a cell lit for part of an
+  exposure reads as in between rather than as white. A shutter much faster than the
+  frame interval (1/500 s, say) catches fewer frames mid-change.
 - **Latency:** source count minus wall count, times the tick (10ms at 100Hz, 8.333ms at
   120Hz). The resolution is one tick.
 - **Flagged frames:** these are left out of the figures and listed in the report:
@@ -129,6 +139,8 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
   - a strip that cannot be read (glare, moiré)
   - a reading that looks wrong: negative latency (regions swapped), or a count outside the
     run log's range (wrong log)
+  - frames from before Start or after Stop, when the clock was not counting (listed as
+    idle, not as problems)
 - **Theme:** the generator page, the analysis app and the report each have an Auto / Light
   / Dark switch. Auto follows the system. Printing always uses the light print style.
 - **Report:** one self-contained HTML file with the slate, figures, a latency-over-time

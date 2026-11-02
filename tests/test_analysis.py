@@ -8,11 +8,17 @@ import pytest
 pytest.importorskip("cv2")
 
 from lagman.analysis import report, synth  # noqa: E402
-from lagman.analysis.analyse import OK, SUSPECT, TRANSITION, analyse, summarise  # noqa: E402
+from lagman.analysis.analyse import (  # noqa: E402
+    OK,
+    SUSPECT,
+    TRANSITION,
+    analyse,
+    summarise,
+)
 from lagman.analysis.cli import main as cli  # noqa: E402
-from lagman.analysis.roi import Quad, refine  # noqa: E402
+from lagman.analysis.roi import Quad, read, refine  # noqa: E402
 from lagman.analysis.setup import RunInfo, Setup  # noqa: E402
-from lagman.analysis.video import Video  # noqa: E402
+from lagman.analysis.video import Video, to_gray  # noqa: E402
 
 SIZE = (960, 540)
 
@@ -104,11 +110,13 @@ def test_refine_snaps_misplaced_regions(clip):
         frames = [g for _, g in v.frames(0, 12)]
     for q in (setup.source, setup.wall):
         cell = q.length / 30
+        exact = sum(read(f, q).status.name == "OK" for f in frames)  # blends do not count
         for s, e in ((0.4, 0.4), (-0.35, 0.3), (0.45, -0.45)):
             r, clean = refine(frames, q.adjusted(s, e))
             for a, b in zip(r.points, q.points, strict=True):
-                assert abs(a[0] - b[0]) < 0.2 * cell and abs(a[1] - b[1]) < 0.2 * cell + 1
-            assert clean >= 8
+                # Within the middle half of a cell, which is all sampling needs.
+                assert abs(a[0] - b[0]) < 0.25 * cell and abs(a[1] - b[1]) < 0.25 * cell + 1
+            assert abs(r.bow) < 0.25 and clean >= exact
 
 
 def test_quad_from_points_any_order():
@@ -177,3 +185,83 @@ def test_cli_analyse(tmp_path, clip, capsys):
     assert cli(["review", str(path), "--setup", str(path.with_suffix(".setup.json")),
                 "--frame", "3", "--out", str(tmp_path / "f.png")]) == 0
     assert (tmp_path / "f.png").is_file()
+
+
+@pytest.fixture(scope="module")
+def lens(tmp_path_factory):
+    """A recording through a wide lens: the strips bow, as on the first S5 test footage."""
+    out = tmp_path_factory.mktemp("lens") / "lens.mp4"
+    _, truths, log = synth.make(out, seconds=1.0, latency_ticks=12, size=SIZE,
+                                transition_rate=0, lens=0.7)
+    return out, Setup.load(out.with_suffix(".setup.json")), truths, log
+
+
+def _spread(path, n=24):
+    with Video(path) as v:
+        return [v.read(i) for i in range(0, v.frame_count, max(1, v.frame_count // n))]
+
+
+def test_lens_bow_is_fitted(lens):
+    path, setup, _, log = lens
+    frames = [to_gray(g) for g in _spread(path)]
+
+    def reads(q):
+        return sum(read(f, q).status.name == "OK" for f in frames)
+
+    bow_needed = []
+    for q in (setup.source, setup.wall):
+        fitted, clean = refine(frames, q)
+        assert reads(q) < len(frames) // 2  # corners alone miss the bowed middle cells
+        assert clean == len(frames)
+        bow_needed.append(reads(Quad(fitted.points)) < clean)
+    assert any(bow_needed)
+    fitted = Setup(refine(frames, setup.source)[0], refine(frames, setup.wall)[0])
+    samples = run(path, fitted, RunInfo.from_run_log(log))
+    assert all(s.status == OK and s.latency_ticks == 12 for s in samples)
+
+
+def test_bow_round_trips(tmp_path, clip):
+    _, setup, _, _ = clip
+    bowed = Setup(Quad.from_points(setup.source.points, bow=0.3), setup.wall)
+    bowed.save(tmp_path / "s.json")
+    data = json.loads((tmp_path / "s.json").read_text())
+    assert data["source"] == setup.source.to_json() and data["source_bow"] == 0.3
+    assert Setup.load(tmp_path / "s.json") == bowed
+
+
+def test_gamma_blend_reads_as_mid_change():
+    # Half an exposure on each count: 50% in light is about 0.73 of white in video code
+    # values. Read in linear light it is ambiguous, not a confident (and wrong) 1.
+    from lagman.analysis.roi import linear_levels
+    from lagman.core import strip
+    lo, hi = strip.encode(838), strip.encode(839)
+    mixed = [255 * (0.5 * a + 0.5 * b) ** (1 / 2.2) for a, b in zip(lo, hi, strict=True)]
+    d = strip.decode(linear_levels(mixed))
+    assert d.status is strip.DecodeStatus.TRANSITION and set(d.candidates) == {838, 839}
+
+
+def test_frames_while_the_clock_is_stopped_are_idle():
+    # Before Start both screens show the start count, and the wall keeps showing it for
+    # its latency after; after Stop the source freezes and the wall catches up. Neither
+    # is a latency, so they are left out, but they are not problems either.
+    from lagman.analysis.analyse import clock_note
+    info = RunInfo(**{**RunInfo.for_rate_set("50").__dict__, "start_count": 0,
+                      "stop_count": 2278})
+    assert clock_note(0, 0, info) and clock_note(9, 0, info)  # not started / wall not yet
+    assert clock_note(2278, 2270, info)  # stopped, wall catching up
+    assert clock_note(905, 888, info) is None
+    assert clock_note(5000, 4980, info) is None  # outside the run: suspect, not idle
+
+
+def test_capture_rate_is_measured_from_the_source_strip(clip):
+    # The first S5 test was shot at 150 fps although the rate set's control camera is 100:
+    # the source then advances two ticks every three frames.
+    path, setup, _, log = clip
+    info = RunInfo.from_run_log(log)
+    samples = run(path, setup, info)
+    assert summarise(samples, info).measured_capture_fps == pytest.approx(100, abs=1)
+    wrong = RunInfo(**{**info.__dict__, "capture_fps": 150})
+    assert summarise(samples, wrong).measured_capture_fps == pytest.approx(100, abs=1)
+    from lagman.analysis.pipeline import run as pipeline_run
+    result = pipeline_run(path, setup, wrong, path.parent / "out-150")
+    assert any("100 fps" in w for w in result.warnings)

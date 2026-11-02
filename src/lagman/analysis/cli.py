@@ -57,7 +57,8 @@ def cmd_analyse(args: argparse.Namespace) -> int:
     mean = f"{summary.mean_ms:.1f} ms" if summary.mean_ms is not None else "n/a"
     print(f"{summary.n} good samples of {summary.frames}: mean {mean}, "
           f"min {summary.min_ms} ms, max {summary.max_ms} ms; flagged {c['transition']} "
-          f"mid-change, {c['unreadable']} unreadable, {c['suspect']} suspect")
+          f"mid-change, {c['unreadable']} unreadable, {c['suspect']} suspect, "
+          f"{c['idle']} with the clock stopped")
     for name, path in result.paths.items():
         print(f"{name}: {path}")
     return 0 if summary.n else 1

@@ -24,7 +24,8 @@ OK = "ok"
 TRANSITION = "transition"
 UNREADABLE = "unreadable"
 SUSPECT = "suspect"
-STATUSES = (OK, TRANSITION, UNREADABLE, SUSPECT)
+IDLE = "idle"  # the generator's clock was not counting: before Start or after Stop
+STATUSES = (OK, TRANSITION, UNREADABLE, SUSPECT, IDLE)
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,9 @@ def sample_frame(index: int, time_s: float, gray: np.ndarray, setup: Setup,
     assert src.count is not None and wall.count is not None
     ticks = count_difference(src.count, wall.count)
     ms = ticks * info.tick_ms
+    idle = clock_note(src.count, wall.count, info)
+    if idle:
+        return Sample(index, time_s, src, wall, IDLE, ticks, ms, idle)
     status = OK
     if ticks < 0:
         status = SUSPECT
@@ -83,6 +87,23 @@ def sample_frame(index: int, time_s: float, gray: np.ndarray, setup: Setup,
         status = SUSPECT
         notes.append("source count outside this run's range: wrong run log?")
     return Sample(index, time_s, src, wall, status, ticks, ms, "; ".join(notes))
+
+
+def clock_note(source: int, wall: int, info: RunInfo) -> str | None:
+    """Why this frame shows no latency because the clock was not counting, or None.
+
+    The count holds at the start count until Start and at the stop count after Stop, so a
+    frame showing exactly one of those is not measuring the chain's delay."""
+    mod = strip.COUNT_MODULUS
+    start = None if info.start_count is None else info.start_count % mod
+    stop = None if info.stop_count is None else info.stop_count % mod
+    if source == start:
+        return "clock not started"
+    if source == stop:
+        return "clock stopped"
+    if wall == start:
+        return "wall still showing the start count"
+    return None
 
 
 def _in_run(count: int, info: RunInfo) -> bool:
@@ -123,6 +144,8 @@ class Summary:
     generator_events: int  # repeated/early frames logged by the generator in this window
     first_tc: str
     last_tc: str
+    # Capture rate the source strip shows: the refresh over the ticks it advances per frame.
+    measured_capture_fps: float | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {k: (round(v, 3) if isinstance(v, float) else v)
@@ -164,4 +187,19 @@ def summarise(samples: list[Sample], info: RunInfo) -> Summary:
         stdev_ms=statistics.stdev(lat) if len(lat) > 1 else None,
         source_breaks=breaks, generator_events=gen_events,
         first_tc=_tc(good[0], info) if good else "", last_tc=_tc(good[-1], info) if good else "",
+        measured_capture_fps=measure_capture_fps(samples, info),
     )
+
+
+def measure_capture_fps(samples: list[Sample], info: RunInfo,
+                        min_span: int = 50) -> float | None:
+    """The capture rate the recording really has, from how fast the source count advances
+    between the first and last counting frames that read. None if too few frames read."""
+    counting = [s for s in samples
+                if s.source.status is DecodeStatus.OK and s.status != IDLE]
+    if len(counting) < 2 or counting[-1].frame - counting[0].frame < min_span:
+        return None
+    ticks = count_difference(counting[-1].source.count, counting[0].source.count)
+    if ticks <= 0:
+        return None
+    return round(info.refresh_hz * (counting[-1].frame - counting[0].frame) / ticks, 1)

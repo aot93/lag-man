@@ -38,12 +38,18 @@ guessing (SPEC.md, "Processing").
 
 ## Decoding
 
-1. Sample the mean luma of the inner half of each of the 30 cells across the region.
+1. Sample the mean level of the inner half of each of the 30 cells across the region, in
+   linear light: video code values are converted with a 2.2 gamma first, so a cell lit for
+   half an exposure reads as half, not about 0.73. The analysis also fits a bow along the
+   strip, so the cells stay centred where lens distortion curves it.
 2. White level = mean of cells 0, 28 and 29; black level = mean of cells 1 and 27. Reject
    the frame if the difference is under 15% of full scale.
 3. Normalise each cell to 0–1 between those levels. Below 0.3 is 0, above 0.7 is 1, between
    is ambiguous. The reference cells must read 1, 0 … 0, 1, 1; if they do not, try the
    levels in reverse order before giving up.
 4. No ambiguous cells: check parity, then convert Gray to binary.
-5. One ambiguous data cell whose two readings are adjacent counts: `transition`.
+5. One ambiguous data cell whose two readings are adjacent counts: `transition`. If only
+   the parity cell is ambiguous, the data cell nearest 0.5 (within 0.35 of it) is taken as
+   the changing one: an exposure split unevenly across a change can push that cell just
+   past a threshold while the parity cell stays in between.
 6. Anything else: `unreadable`, with a reason.

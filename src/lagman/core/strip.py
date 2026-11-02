@@ -31,6 +31,7 @@ _REFS = [*((i, b) for i, b in enumerate(LEAD)),
 # Normalised level bands: below LOW is black, above HIGH is white, between is ambiguous.
 LOW = 0.3
 HIGH = 0.7
+NEAR_MID = 0.35  # a data cell this close to 0.5 can be the changing bit (see _decode)
 # Minimum white-minus-black reference contrast, as a fraction of full scale.
 MIN_CONTRAST = 0.15
 
@@ -114,8 +115,15 @@ def _decode(levels: Sequence[float], full_scale: float) -> Decoded:
         return Decoded(DecodeStatus.OK, count=ungray(_bits_to_int(bits[:COUNT_BITS])))
 
     # One changing Gray bit also flips the parity cell, so a clean mid-change frame shows
-    # one ambiguous data bit and possibly an ambiguous parity cell.
+    # one ambiguous data bit and possibly an ambiguous parity cell. An exposure split
+    # unevenly across the change can push the data bit just past a threshold while the
+    # parity cell stays in between: then the changing bit is the data cell nearest the
+    # middle, if one is reasonably near it.
     data_amb = [i for i in ambiguous if i < COUNT_BITS]
+    if not data_amb and ambiguous == (COUNT_BITS,):
+        nearest = min(range(COUNT_BITS), key=lambda j: abs(data[j] - 0.5))
+        if abs(data[nearest] - 0.5) <= NEAR_MID:
+            data_amb = [nearest]
     if len(data_amb) == 1:
         i = data_amb[0]
         gray_bits = bits[:COUNT_BITS]

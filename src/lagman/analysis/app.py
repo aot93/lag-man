@@ -45,7 +45,7 @@ HERE = Path(__file__).parent
 APP_STATIC = HERE / "static"
 WEB_STATIC = HERE.parent / "web" / "static"
 CHECK_FRAMES = 10
-REFINE_FRAMES = 12
+FIT_FRAMES = 24  # spread across the recording, so more of the code's bits change
 MAX_BODY = 64 * 1024
 
 
@@ -76,11 +76,12 @@ class Job:
     message: str = ""
     started: str | None = None
     finished: str | None = None
+    result: dict[str, Any] | None = None  # what a job hands back to the page (a fit)
     cancel: threading.Event = field(default_factory=threading.Event, repr=False)
 
     def to_json(self) -> dict[str, Any]:
         keys = ("id", "kind", "recording", "label", "state", "done", "total", "message",
-                "started", "finished")
+                "started", "finished", "result")
         return {k: getattr(self, k) for k in keys}
 
 
@@ -100,7 +101,8 @@ class Jobs:
             active = [j for j in self._jobs if j.recording == recording and recording
                       and j.state in ("queued", "running")]
             if active:
-                raise ApiError(HTTPStatus.CONFLICT, "this recording is already being analysed")
+                raise ApiError(HTTPStatus.CONFLICT,
+                               "this recording is busy: wait for its analysis or fit to finish")
             self._jobs.append(job)
             self._jobs = self._jobs[-50:]
             self._wake.notify()
@@ -134,7 +136,10 @@ class Jobs:
                 job.done, job.total = done, total
 
             try:
-                job.message = job.fn(progress, job.cancel) or ""  # type: ignore[attr-defined]
+                out = job.fn(progress, job.cancel)  # type: ignore[attr-defined]
+                if isinstance(out, tuple):
+                    out, job.result = out
+                job.message = out or ""
                 job.state = "done"
             except Cancelled:
                 job.state, job.message = "cancelled", "cancelled"
@@ -157,6 +162,7 @@ class App:
         self.token = secrets.token_urlsafe(24)
         self._videos: dict[str, tuple[Video, threading.Lock]] = {}
         self._vlock = threading.Lock()
+        self._spread: tuple[str, list] | None = None  # (recording id, frames) for fitting
 
     # videos are opened once per recording and shared, one reader at a time
     def _video(self, rec: Recording) -> tuple[Video, threading.Lock]:
@@ -170,6 +176,8 @@ class App:
             return entry
 
     def _forget_video(self, rec_id: str) -> None:
+        if self._spread and self._spread[0] == rec_id:
+            self._spread = None
         with self._vlock:
             entry = self._videos.pop(rec_id, None)
         if entry:
@@ -272,7 +280,7 @@ class App:
             if not pts or len(pts) != 4:
                 continue
             try:
-                quad = Quad.from_points(pts)
+                quad = Quad.from_points(pts, body.get(f"{name}_bow") or 0.0)
             except (ValueError, TypeError) as e:
                 out[name] = {"error": str(e)}
                 continue
@@ -290,20 +298,55 @@ class App:
         return out
 
     def save_regions(self, rec: Recording, body: dict[str, Any]) -> dict[str, Any]:
+        """Save the regions exactly as shown: fitting is its own step, so nudges made after
+        a fit are kept."""
         name = check_name(str(body.get("name") or ""))
         n = int(body.get("frame", 0))
-        frames = self._grays(rec, n, REFINE_FRAMES)
+        quads = {which: _quad(body, which) for which in ("source", "wall")}
+        frames = self._grays(rec, n, CHECK_FRAMES)
+        clean = {which: sum(read(g, q).status is DecodeStatus.OK for g in frames)
+                 for which, q in quads.items()}
         video, _ = self._video(rec)
-        quads, clean = {}, {}
-        for which in ("source", "wall"):
-            try:
-                quads[which], clean[which] = refine(frames, Quad.from_points(body[which]))
-            except (KeyError, TypeError, ValueError) as e:
-                raise bad(f"{which} region: {e}") from None
         setup = Setup(quads["source"], quads["wall"], (video.width, video.height), n)
         self.ws.save_setup(name, setup)
         self.ws.update(rec.id, {"setup": name})
         return {"setup": setup.to_json(), "name": name, "clean": clean, "checked": len(frames)}
+
+    def fit(self, rec: Recording, body: dict[str, Any]) -> Job:
+        """Fit the marked regions to the strips' cells, in the background: reading frames
+        spread across a long-GOP recording takes seconds."""
+        quads = {which: _quad(body, which) for which in ("source", "wall") if body.get(which)}
+        if not quads:
+            raise bad("mark a region first")
+
+        def work(progress, cancel):
+            frames = self._spread_frames(rec, progress, cancel)
+            out: dict[str, Any] = {"checked": len(frames)}
+            for which, q in quads.items():
+                fitted, clean = refine(frames, q)
+                out[which] = {"points": fitted.to_json(), "bow": fitted.bow, "clean": clean}
+            text = ", ".join(f"{w} reads {out[w]['clean']} of {len(frames)}" for w in quads)
+            return f"Fitted: {text}", out
+
+        return self.jobs.submit("fit", rec.id, f"Fit regions on {rec.video_path.name}", work)
+
+    def _spread_frames(self, rec: Recording, progress, cancel) -> list:
+        cached = self._spread
+        if cached and cached[0] == rec.id:
+            return cached[1]
+        video, lock = self._video(rec)
+        count = max(1, video.frame_count)
+        picks = sorted({round(i * (count - 1) / max(1, FIT_FRAMES - 1))
+                        for i in range(FIT_FRAMES)})
+        frames = []
+        for done, i in enumerate(picks, 1):
+            if cancel.is_set():
+                raise Cancelled()
+            with lock:
+                frames.append(to_gray(video.read(i)))
+            progress(done, len(picks))
+        self._spread = (rec.id, frames)  # one recording's worth: about 50 MB at 1080p
+        return frames
 
     # ---- jobs ----
 
@@ -486,6 +529,13 @@ def generator_base(url: str) -> str:
     return f"{parts.scheme}://{netloc}{parts.path.rstrip('/')}"
 
 
+def _quad(body: dict[str, Any], which: str) -> Quad:
+    try:
+        return Quad.from_points(body[which], body.get(f"{which}_bow") or 0.0)
+    except (KeyError, TypeError, ValueError) as e:
+        raise bad(f"{which} region: {e}") from None
+
+
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
 
@@ -639,6 +689,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(data, "image/jpeg")
             case "GET", ["recordings", rid, "sample"]:
                 return self._json(app.sample(app._rec(rid), int(one("n", "0"))))
+            case "POST", ["recordings", rid, "fit"]:
+                return self._json(app.fit(app._rec(rid), body).to_json())
             case "POST", ["recordings", rid, "check"]:
                 return self._json(app.check(app._rec(rid), body))
             case "POST", ["recordings", rid, "regions"]:

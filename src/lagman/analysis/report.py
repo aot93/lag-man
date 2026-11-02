@@ -17,7 +17,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from .analyse import OK, SUSPECT, TRANSITION, UNREADABLE, Sample, Summary
+from .analyse import IDLE, OK, SUSPECT, TRANSITION, UNREADABLE, Sample, Summary
 from .setup import RunInfo
 
 STATIC = Path(__file__).parents[1] / "web" / "static"
@@ -229,6 +229,7 @@ def html_report(samples: Sequence[Sample], summary: Summary, info: RunInfo, vide
         (c[TRANSITION], "frames with a strip caught mid-change (flagged, not used)"),
         (c[UNREADABLE], "frames where a strip could not be read (glare, moiré, obstruction)"),
         (c[SUSPECT], "frames that decoded but look wrong (negative latency, or outside the run)"),
+        (c[IDLE], "frames before Start or after Stop, when the clock was not counting (left out)"),
         (summary.source_breaks, "places where the source strip did not advance as expected"),
         (summary.generator_events,
          "dropped or repeated generator frames logged during this window"),
@@ -242,7 +243,11 @@ def html_report(samples: Sequence[Sample], summary: Summary, info: RunInfo, vide
                          for k, v in slate.items()) or '<tr><td>No slate in the run log.</td></tr>'
     meta = [("Video", video), ("Run log", info.run_id or "none (rate set from command line)"),
             ("Rate set", f"{info.refresh_hz} Hz source, {info.tick_ms:.3f} ms per tick"),
-            ("Capture", f"{info.capture_fps} fps, {info.frame_ms:.3f} ms per video frame"),
+            ("Capture", f"{info.capture_fps} fps, {info.frame_ms:.3f} ms per video frame"
+             + (f" (the source strip shows about {summary.measured_capture_fps:.0f} fps)"
+                if summary.measured_capture_fps and abs(summary.measured_capture_fps
+                                                        - info.capture_fps)
+                > 0.03 * info.capture_fps else "")),
             ("Time code", f"{summary.first_tc or '–'} to {summary.last_tc or '–'}"),
             ("Analysed", datetime.now().strftime("%Y-%m-%d %H:%M"))]
     meta_rows = "".join(f"<tr><th>{escape(k)}</th><td>{escape(str(v))}</td></tr>"

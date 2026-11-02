@@ -126,15 +126,24 @@ def test_whole_workflow(server, clip):
     # analysing before marking is refused
     assert c.call("POST", f"/api/recordings/{rid}/analyse", {})[0] == 400
 
-    # regions: hand-marked a little off, checked live, snapped on save
+    # regions: hand-marked a little off, checked live, fitted to the cells in the
+    # background, then saved as fitted
     truth = Setup.load(clip.with_suffix(".setup.json"))
     body = {"frame": 0, "source": truth.source.adjusted(0.3, -0.3).to_json(),
             "wall": truth.wall.adjusted(-0.2, 0.3).to_json()}
     check = c.ok("POST", f"/api/recordings/{rid}/check", body)
     assert check["source"]["ok_frames"] > 0 and check["latency_ticks"]
+    assert c.call("POST", f"/api/recordings/{rid}/fit", {"source": [[0, 0]]})[0] == 400
+    job = wait_job(c, c.ok("POST", f"/api/recordings/{rid}/fit", body)["id"])
+    assert job["state"] == "done", job["message"]
+    fit = job["result"]
+    for which in ("source", "wall"):
+        assert fit[which]["clean"] >= fit["checked"] // 2 and "bow" in fit[which]
+        body[which], body[f"{which}_bow"] = fit[which]["points"], fit[which]["bow"]
     assert c.call("POST", f"/api/recordings/{rid}/regions", {**body, "name": "../x"})[0] == 400
     saved = c.ok("POST", f"/api/recordings/{rid}/regions", {**body, "name": "Cam pos 1"})
-    assert saved["clean"]["source"] >= 8 and saved["clean"]["wall"] >= 8
+    assert saved["setup"]["source"] == fit["source"]["points"]  # saved as shown, not refitted
+    assert saved["clean"]["source"] >= 5 and saved["clean"]["wall"] >= 5
     state = c.ok("GET", "/api/state")
     assert state["setups"] == ["Cam pos 1"] and state["recordings"][0]["setup"] == "Cam pos 1"
 

@@ -118,13 +118,18 @@ function onState(prev) {
   for (const j of app.jobs) {
     const was = before.get(j.id);
     if (was && was !== j.state && !["queued", "running"].includes(j.state)) onJobFinished(j);
+    // A fit from cached frames can finish before any poll sees it running.
+    else if (!was && j.kind === "fit" && onFitFinished && !["queued", "running"].includes(j.state)) onFitFinished(j);
   }
   if (route.name === "home") renderHomeTable();
   if (route.name === "recording" && route.tab === "analyse") updateProgress();
 }
 
+let onFitFinished = null; // set while the regions tab is open
+
 function onJobFinished(job) {
   if (job.state === "failed") showError(`${job.label} failed: ${job.message}`);
+  if (job.kind === "fit" && onFitFinished) onFitFinished(job);
   if (job.kind === "demo" && job.state === "done" && route.name === "home") renderHome();
   if (job.kind === "analyse" && route.name === "recording" && route.id === job.recording) {
     if (job.state === "done") go(`#/recording/${enc(job.recording)}/results`);
@@ -441,7 +446,7 @@ async function detailsTab(box, info) {
 function regionsTab(box, info) {
   const rec = info.recording;
   const v = info.video;
-  const view = h("canvas", { class: "view", "aria-label": "Video frame. Click the corners of a strip." });
+  const view = h("canvas", { class: "view", tabindex: "0", "aria-label": "Video frame. Click the corners of a strip; arrow keys nudge the selected corner." });
   const loupe = h("canvas", { class: "loupe", width: "200", height: "200", hidden: true });
   const slider = h("input", { type: "range", min: "0", max: String(Math.max(0, v.frames - 1)), value: "0", "aria-label": "Frame" });
   const num = h("input", { type: "number", min: "0", max: String(Math.max(0, v.frames - 1)), value: "0", "aria-label": "Frame number" });
@@ -454,9 +459,15 @@ function regionsTab(box, info) {
   const defaultName = rec.setup || info.run.slate?.CAMERA || `setup-${app.setups.length + 1}`;
   const nameIn = h("input", { type: "text", value: defaultName.replace(/[^A-Za-z0-9 _.-]/g, "-").slice(0, 64), maxlength: "64" });
   const saveBtn = h("button", { class: "btn primary", type: "button", disabled: true }, "Save regions");
+  const fitBtn = h("button", { class: "btn", type: "button", disabled: true }, "Fit to cells");
+  const fitNote = h("p", { class: "hint" });
   const saved = h("div", { class: "alert ok", hidden: true }, h("p", {}));
 
   const pts = { source: info.setup?.source || [], wall: info.setup?.wall || [] };
+  const bow = { source: info.setup?.source_bow || 0, wall: info.setup?.wall_bow || 0 };
+  let sel = null; // the corner arrow keys move: { name, i }
+  let fitting = null; // job id of a fit in progress
+  const fitQueue = new Set(); // regions to fit once it finishes
   let mode = "source";
   let frame = info.setup?.marked_on_frame ?? 0;
   let img = new Image();
@@ -490,8 +501,37 @@ function regionsTab(box, info) {
       p.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       if (p.length === 4) ctx.closePath();
       ctx.stroke();
-      for (const [x, y] of p) { ctx.beginPath(); ctx.arc(x, y, lw * 2.5, 0, Math.PI * 2); ctx.fill(); }
+      p.forEach(([x, y], i) => {
+        ctx.beginPath();
+        ctx.arc(x, y, lw * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        if (sel && sel.name === name && sel.i === i) {
+          ctx.beginPath();
+          ctx.arc(x, y, lw * 6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      });
+      if (p.length === 4) drawCells(ctx, stripOrder(p), bow[name], lw);
     }
+  }
+  // Ticks where the analysis expects each cell boundary, outside the strip so they do not
+  // hide it: they should line up with the edges between cells.
+  function drawCells(ctx, q, b, lw) {
+    const map = squareToQuad(q);
+    ctx.lineWidth = Math.max(1, lw / 2);
+    ctx.beginPath();
+    for (let k = 0; k <= CELLS; k++) {
+      const t = k / CELLS;
+      const u = (k + b * 4 * t * (1 - t)) / CELLS;
+      const len = k % 5 === 0 ? 0.6 : 0.35;
+      for (const [v0, v1] of [[-len, 0], [1, 1 + len]]) {
+        const [x0, y0] = map(u, v0);
+        const [x1, y1] = map(u, v1);
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+      }
+    }
+    ctx.stroke();
   }
   function toImage(e) {
     const r = view.getBoundingClientRect();
@@ -532,12 +572,16 @@ function regionsTab(box, info) {
   view.addEventListener("pointerdown", (e) => {
     const [x, y] = toImage(e);
     const hit = nearest(x, y);
-    if (hit) { drag = hit; view.setPointerCapture(e.pointerId); return; }
-    if (pts[mode].length >= 4) pts[mode] = [];
+    if (hit) { drag = sel = hit; view.setPointerCapture(e.pointerId); draw(); return; }
+    if (pts[mode].length >= 4) { pts[mode] = []; bow[mode] = 0; }
     pts[mode].push([x, y]);
+    sel = { name: mode, i: pts[mode].length - 1 };
     if (pts[mode].length === 4) {
-      pts[mode] = loopOrder(pts[mode]);
-      if (mode === "source" && pts.wall.length < 4) setMode("wall");
+      const done = mode;
+      pts[done] = loopOrder(pts[done]);
+      sel = null;
+      fit([done]); // an automatic first fit; nudges after it are kept
+      if (done === "source" && pts.wall.length < 4) setMode("wall");
     }
     draw();
     showLoupe(x, y, e);
@@ -549,6 +593,16 @@ function regionsTab(box, info) {
     showLoupe(x, y, e);
   });
   view.addEventListener("pointerup", () => { drag = null; });
+  view.addEventListener("keydown", (e) => {
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!step || !sel || !pts[sel.name][sel.i]) return;
+    e.preventDefault();
+    const d = e.shiftKey ? 5 : 0.5; // video pixels
+    const [x, y] = pts[sel.name][sel.i];
+    pts[sel.name][sel.i] = [x + step[0] * d, y + step[1] * d];
+    draw();
+    schedule();
+  });
   view.addEventListener("pointerleave", () => { if (!drag) loupe.hidden = true; });
 
   function schedule() {
@@ -568,27 +622,65 @@ function regionsTab(box, info) {
     return r.ok_frames >= Math.ceil(r.checked / 2);
   }
   async function check() {
-    const out = await act(() => api("POST", `recordings/${enc(rec.id)}/check`, {
-      frame, source: pts.source.length === 4 ? pts.source : null, wall: pts.wall.length === 4 ? pts.wall : null,
-    }));
+    const out = await act(() => api("POST", `recordings/${enc(rec.id)}/check`, regionBody()));
+    const marked = pts.source.length === 4 && pts.wall.length === 4;
+    saveBtn.disabled = !marked;
+    fitBtn.disabled = !!fitting || !(pts.source.length === 4 || pts.wall.length === 4);
     if (!out) return;
-    const a = describe("source", out.source);
-    const b = describe("wall", out.wall);
+    describe("source", out.source);
+    describe("wall", out.wall);
     const lat = out.latency_ticks || [];
     latency.textContent = lat.length ? `Latency over the next frames, in ticks: ${lat.join(" ")}` : "";
-    saveBtn.disabled = !(a && b);
   }
-  saveBtn.addEventListener("click", async () => {
-    const out = await act(() => api("POST", `recordings/${enc(rec.id)}/regions`, { frame, source: pts.source, wall: pts.wall, name: nameIn.value }));
-    if (!out) return;
-    pts.source = out.setup.source;
-    pts.wall = out.setup.wall;
+  function regionBody() {
+    const out = { frame };
+    for (const name of ["source", "wall"]) {
+      out[name] = pts[name].length === 4 ? pts[name] : null;
+      out[`${name}_bow`] = bow[name];
+    }
+    return out;
+  }
+  async function fit(names) {
+    if (fitting) { names.forEach((n) => fitQueue.add(n)); return; }
+    const body = regionBody();
+    for (const name of ["source", "wall"]) if (!names.includes(name)) body[name] = null;
+    const job = await act(() => api("POST", `recordings/${enc(rec.id)}/fit`, body));
+    if (!job) return;
+    fitting = job.id;
+    fitBtn.disabled = true;
+    fitNote.textContent = "Fitting to the cells: reading frames from across the recording…";
+    refreshState();
+  }
+  onFitFinished = (job) => {
+    if (job.id !== fitting) return;
+    fitting = null;
+    if (job.state !== "done") { fitNote.textContent = `Fit ${job.state}.`; schedule(); fitNext(); return; }
+    const r = job.result;
+    for (const name of ["source", "wall"]) {
+      if (!r[name]) continue;
+      pts[name] = r[name].points;
+      bow[name] = r[name].bow;
+    }
+    const parts = ["source", "wall"].filter((n) => r[n]).map((n) => `${n === "source" ? "source" : "wall"} reads cleanly in ${r[n].clean} of ${r.checked}`);
+    fitNote.textContent = `Fitted across the recording: ${parts.join(", ")} (frames caught mid-change do not count). Check the ticks line up with the cell edges; nudge a corner if not.`;
     draw();
+    schedule();
+    fitNext();
+  };
+  function fitNext() {
+    const next = [...fitQueue].filter((n) => pts[n].length === 4);
+    fitQueue.clear();
+    if (next.length) fit(next);
+  }
+  cleanup.push(() => { onFitFinished = null; });
+  saveBtn.addEventListener("click", async () => {
+    const out = await act(() => api("POST", `recordings/${enc(rec.id)}/regions`, { ...regionBody(), name: nameIn.value }));
+    if (!out) return;
     check();
     const tab = document.querySelector('.tabs a[href$="/regions"]');
     if (tab) { tab.classList.add("done"); tab.querySelector(".n").textContent = "✓"; }
     saved.hidden = false;
-    saved.replaceChildren(h("p", { text: `Saved as setup "${out.name}". After snapping to the cells the source reads cleanly in ${out.clean.source} of ${out.checked} frames and the wall in ${out.clean.wall} (frames caught mid-change do not count).` }),
+    saved.replaceChildren(h("p", { text: `Saved as setup "${out.name}". From this frame the source reads cleanly in ${out.clean.source} of ${out.checked} frames and the wall in ${out.clean.wall} (frames caught mid-change do not count).` }),
       h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/recording/${enc(rec.id)}/analyse` }, "Next: analyse")));
     refreshState();
   });
@@ -597,7 +689,8 @@ function regionsTab(box, info) {
   num.addEventListener("change", () => loadFrame(Number(num.value)));
   cleanup.push(() => clearTimeout(timer));
 
-  const clear = (name) => h("button", { class: "btn small", type: "button", onclick: () => { pts[name] = []; setMode(name); draw(); schedule(); } }, "Clear");
+  fitBtn.addEventListener("click", () => fit(["source", "wall"].filter((n) => pts[n].length === 4)));
+  const clear = (name) => h("button", { class: "btn small", type: "button", onclick: () => { pts[name] = []; bow[name] = 0; sel = null; setMode(name); draw(); schedule(); } }, "Clear");
   box.replaceChildren(h("div", { class: "split" },
     card("Frame",
       h("div", { class: "stage" }, view, loupe),
@@ -610,16 +703,49 @@ function regionsTab(box, info) {
       card("How to mark", h("ol", { class: "how" },
         h("li", { text: "Pick a frame where both strips are clear." }),
         h("li", { text: "Choose a region, then click the four corners of that strip, in any order. The white cells at each end show where it starts and stops." }),
-        h("li", { text: "Drag a corner to adjust it; the magnifier helps place it on the edge." }),
-        h("li", { text: "When both regions read, name the setup and save. Saving snaps the ends onto the cells." }))),
+        h("li", { text: "Each region is then fitted to the cells automatically, using frames from across the recording. The ticks show where each cell edge is expected; they also follow the slight bow a wide lens puts in the strip." }),
+        h("li", { text: "Drag a corner, or click it and nudge it with the arrow keys (Shift for bigger steps), until the ticks sit on the cell edges. Fit to cells fits again." }),
+        h("li", { text: "Name the setup and save." }))),
       card("Regions", modeSeg,
         h("div", { class: "region source" }, h("h3", {}, "Source monitor", clear("source")), status.source, detail.source),
         h("div", { class: "region wall" }, h("h3", {}, "LED wall", clear("wall")), status.wall, detail.wall),
         latency,
         h("div", { class: "form mt-s" }, h("label", {}, "Setup name", nameIn)),
-        h("div", { class: "toolbar mt-s" }, saveBtn),
+        h("div", { class: "toolbar mt-s" }, fitBtn, saveBtn),
+        fitNote,
         saved))));
   loadFrame(frame);
+}
+
+const CELLS = 30; // docs/strip-format.md
+
+// Corners in the order the analysis uses (roi.Quad.from_points): loop order, starting
+// along a long edge.
+function stripOrder(p) {
+  const cx = p.reduce((s, q) => s + q[0], 0) / 4;
+  const cy = p.reduce((s, q) => s + q[1], 0) / 4;
+  let q = [...p].sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  if (d(q[0], q[1]) < d(q[1], q[2])) q = [...q.slice(1), q[0]];
+  return q;
+}
+
+// Projective map from the unit square (u along the strip, v across) onto a quad given as
+// the images of (0,0), (1,0), (1,1), (0,1): the same rectification the analysis does.
+function squareToQuad([[x0, y0], [x1, y1], [x2, y2], [x3, y3]]) {
+  const dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3;
+  const dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
+  let g = 0, hh = 0;
+  if (dx3 || dy3) {
+    const den = dx1 * dy2 - dx2 * dy1;
+    g = (dx3 * dy2 - dx2 * dy3) / den;
+    hh = (dx1 * dy3 - dx3 * dy1) / den;
+  }
+  const a = x1 - x0 + g * x1, b = x3 - x0 + hh * x3, c = y1 - y0 + g * y1, d = y3 - y0 + hh * y3;
+  return (u, v) => {
+    const w = g * u + hh * v + 1;
+    return [(a * u + b * v + x0) / w, (c * u + d * v + y0) / w];
+  };
 }
 
 // -- analyse --
@@ -747,6 +873,7 @@ async function resultsTab(box, info) {
     [c.transition, "frames with a strip caught mid-change (left out)", true],
     [c.unreadable, "frames where a strip could not be read", true],
     [c.suspect, "frames that decoded but look wrong (negative latency, or outside the run)", true],
+    [c.idle ?? 0, "frames before Start or after Stop, when the clock was not counting (left out)", false],
     [s.source_breaks, "places where the source strip did not advance as expected", true],
     [s.generator_events, "dropped or repeated generator frames during this recording", true],
   ];

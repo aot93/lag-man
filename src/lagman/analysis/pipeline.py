@@ -45,6 +45,12 @@ def run(video_path: Path, setup: Setup, info: RunInfo, out_dir: Path,
         samples = analyse(_watched(video.frames(start, end), total, progress, cancel),
                           setup, info)
         summary = summarise(samples, info)
+        measured = summary.measured_capture_fps
+        if measured and abs(measured - info.capture_fps) > 0.03 * info.capture_fps:
+            warnings.append(
+                f"the source strip shows the camera captured at about {measured:.0f} fps, not "
+                f"the {info.capture_fps} fps assumed; set the capture rate to "
+                f"{measured:.0f}. Latency figures are unaffected; times are not")
         review = [(title, s, jpeg(draw(video.read(s.frame), setup, s, info, 960)))
                   for title, s in pick_review(samples)]
     paths = write_outputs(out_dir, samples, summary, info, video_path.name, review)

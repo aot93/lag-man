@@ -69,6 +69,24 @@ def test_mid_change_is_flagged_not_guessed():
     assert sorted(d.candidates) == [n, n + 1]
 
 
+def test_uneven_mid_change_with_only_parity_ambiguous():
+    # An exposure 70/30 across a change: the changing data cell lands just over the white
+    # threshold while the parity cell is clearly in between. Still mid-change, not a read.
+    n = 838
+    a, b = levels_for(n), levels_for(n + 1)
+    lv = [0.3 * x + 0.7 * y for x, y in zip(a, b, strict=True)]
+    changing = next(i for i in range(2, 26) if a[i] != b[i])
+    lv[changing] = a[changing] + 0.75 * (b[changing] - a[changing])
+    d = decode(lv)
+    assert d.status is DecodeStatus.TRANSITION and sorted(d.candidates) == [n, n + 1]
+
+
+def test_parity_alone_ambiguous_without_a_near_mid_data_cell_is_unreadable():
+    lv = levels_for(5000)
+    lv[26] = 128  # nothing else near the middle: not a change in progress
+    assert decode(lv).status is DecodeStatus.UNREADABLE
+
+
 def test_two_ambiguous_cells_unreadable():
     lv = levels_for(5000)
     lv[5] = lv[9] = 120

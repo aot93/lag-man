@@ -2,13 +2,15 @@
 
 Each camera frame shows the generator output twice: on a "source monitor" and, delayed, on
 an "LED wall", both seen at an angle, then blurred, dimmed and noised. Some frames blend two
-consecutive counts, as a real exposure does when it spans a screen update. The result is
+consecutive counts in light, as a real exposure does when it spans a screen update. An
+optional wide-lens distortion bows the strips, as on real footage. The result is
 written as a video plus the exact strip regions and a matching run log.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,7 +23,7 @@ from ..core import layout as layout_mod
 from ..core.config import GeneratorConfig
 from ..core.rates import get_rate_set
 from ..generator.scene import Fill, compose
-from .roi import Quad
+from .roi import GAMMA, Quad
 from .setup import Setup
 
 SCREEN = (960, 540)
@@ -60,13 +62,40 @@ def _place(frame: np.ndarray, screen: np.ndarray, corners: np.ndarray, gain: flo
     frame[:] = frame * (1 - mask) + (warped * gain + offset) * mask
 
 
-def _strip_quad(lay: layout_mod.Layout, corners: np.ndarray) -> Quad:
+def _strip_quad(lay: layout_mod.Layout, corners: np.ndarray, size: tuple[int, int],
+                lens: float) -> Quad:
+    """The strip's corners as seen. With lens distortion the corners are exact but the
+    middle bows away from the straight edges, which is what ``refine`` has to find."""
     w, h = lay.width, lay.height
     m = cv2.getPerspectiveTransform(np.float32([[0, 0], [w, 0], [w, h], [0, h]]), corners)
     s = lay.strip
     pts = np.float32([[[s.x, s.y], [s.right, s.y], [s.right, s.bottom], [s.x, s.bottom]]])
     out = cv2.perspectiveTransform(pts, m)[0]
+    if lens:
+        out = [_distort(p, size, lens) for p in out]
     return Quad(tuple((float(x), float(y)) for x, y in out))  # type: ignore[arg-type]
+
+
+def _barrel_map(size: tuple[int, int], k: float) -> tuple[np.ndarray, np.ndarray]:
+    """remap() tables: each output pixel samples further out, so the picture pulls in."""
+    w, h = size
+    cx, cy, norm = w / 2, h / 2, math.hypot(w / 2, h / 2)
+    x, y = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    r2 = ((x - cx) ** 2 + (y - cy) ** 2) / norm ** 2
+    f = 1 + k * r2
+    return cx + (x - cx) * f, cy + (y - cy) * f
+
+
+def _distort(p, size: tuple[int, int], k: float) -> tuple[float, float]:
+    """Where an undistorted point lands in the output of ``_barrel_map``."""
+    w, h = size
+    cx, cy, norm = w / 2, h / 2, math.hypot(w / 2, h / 2)
+    px, py = float(p[0]) - cx, float(p[1]) - cy
+    qx, qy = px, py
+    for _ in range(20):  # solve q * (1 + k|q|^2) = p
+        f = 1 + k * (qx * qx + qy * qy) / norm ** 2
+        qx, qy = px / f, py / f
+    return cx + qx, cy + qy
 
 
 def _open_writer(out: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
@@ -96,11 +125,12 @@ def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
          latency_ticks: Callable[[int], int] | int = 8, start_count: int = 360_000,
          size: tuple[int, int] = (1280, 720), transition_rate: float = 0.15,
          noise: float = 4.0, blur: float = 1.2, seed: int = 1,
-         mirror_wall: bool = False,
+         mirror_wall: bool = False, lens: float = 0.0,
          progress: Callable[[int, int], None] | None = None) -> tuple[Setup, list[Truth], Path]:
     """Write ``out`` (a video), ``out.setup.json`` and ``out.run.jsonl``.
 
     The file is written at half the capture rate, as the S5 does for 100/120fps capture.
+    ``lens`` is barrel distortion: how far, as a fraction, the frame's corners pull in.
     """
     rs = get_rate_set(rate_set)
     rng = np.random.default_rng(seed)
@@ -115,7 +145,9 @@ def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
                                [0.96 * w, 0.78 * h], [0.53 * w, 0.72 * h]])
     if mirror_wall:
         wall_corners = wall_corners[[1, 0, 3, 2]]
-    setup = Setup(_strip_quad(lay, src_corners), _strip_quad(lay, wall_corners), (w, h), 0)
+    setup = Setup(_strip_quad(lay, src_corners, (w, h), lens),
+                  _strip_quad(lay, wall_corners, (w, h), lens), (w, h), 0)
+    remap = _barrel_map((w, h), lens) if lens else None
 
     frames = round(seconds * rs.control_camera_fps)
     step = rs.refresh_hz // rs.control_camera_fps
@@ -134,8 +166,12 @@ def make(out: Path, seconds: float = 4.0, rate_set: str = "50",
                     (src, sb, src_corners, 0.85, 6.0), (wall, wb, wall_corners, 0.6, 22.0)):
                 screen = render_screen(cfg, lay, count).astype(np.float32)
                 if blend:
-                    screen = (1 - blend) * screen + blend * render_screen(cfg, lay, count + 1)
+                    nxt = render_screen(cfg, lay, count + 1).astype(np.float32)
+                    light = (1 - blend) * (screen / 255) ** GAMMA + blend * (nxt / 255) ** GAMMA
+                    screen = 255 * light ** (1 / GAMMA)
                 _place(frame, screen, corners, gain, offset)
+            if remap is not None:
+                frame = cv2.remap(frame, *remap, cv2.INTER_LINEAR)
             if blur:
                 frame = cv2.GaussianBlur(frame, (0, 0), blur)
             frame += rng.normal(0, noise, frame.shape)
