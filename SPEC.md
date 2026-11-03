@@ -77,6 +77,23 @@ A slate is a block of text shown on screen so that any recording identifies itse
 - Each slate is also written to the run's log file, so the recording and the log can be matched later.
 - From start until the first run, and again after the network changes, the slate area also shows the control page's address on each network port (and the Wi-Fi or hotspot name), so the generator can be found without a keyboard. These lines are never shown during a run or logged.
 
+### Slate only screen
+
+The generator can also show the slate on its own, for labelling any recording without
+running a latency test.
+
+- A large time-of-day clock (HH:MM:SS) from the system clock, for people to read. It is not
+  the test count and is never used for timing.
+- Optional time code (HH:MM:SS:FF) under it, at the time code rate. It counts displayed
+  frames like the test clock and runs continuously from the start value; the time-of-day
+  start mode jams it to the clock, and Reset jams it again.
+- The slate fields below, whatever the slate mode (each field's toggle still hides it). A
+  blank run number stays blank, the date shows without the time, and the clock settings
+  line is replaced by the time code's caption.
+- Optionally the control page's address, under the fields.
+- No runs and no run logs. The screen can only change while no run is in progress, and the
+  last one chosen is used at the next start.
+
 ## Web control front end
 
 The generator runs a small web server. Any device on the network opens a page to configure and control it, so the operator does not need to touch the generator's keyboard.

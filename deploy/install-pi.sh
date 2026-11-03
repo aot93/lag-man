@@ -31,6 +31,7 @@ if [ ! -e "$DEFAULTS" ]; then
 # Web UI password (any user name is accepted). Blank: no password.
 LAGMAN_PASSWORD=
 # Extra command-line options, for example: --mode 1920x1080@50 --rate-set 50
+# or, for the slate only screen with a saved preset: --screen slate --config presets/Slate.json
 LAGMAN_ARGS=
 CONF
     sudo chmod 600 "$DEFAULTS"

@@ -6,6 +6,9 @@ and ``preview`` read snapshots that the render loop publishes once per frame.
 
 The count runs at the display's refresh: the rate set's standard rate, or its fallback when
 the display mode is 50 or 60Hz (SPEC.md, "Display mode").
+
+On the slate screen (``screen`` "slate") there are no runs: the clock counts continuously as
+time code, under a time-of-day clock read from the system clock for people to read.
 """
 
 from __future__ import annotations
@@ -23,14 +26,14 @@ from typing import Any
 
 from ..core import layout as layout_mod
 from ..core.clock import Clock
-from ..core.config import GeneratorConfig
+from ..core.config import SCREENS, GeneratorConfig
 from ..core.display import DisplayControl, DisplayMode, usable_modes
 from ..core.framemon import FrameEvent, FrameMonitor
 from ..core.rates import get_rate_set
 from ..core.runlog import RunLog, new_run_id
 from ..core.slate import slate_lines
 from ..core.timecode import parse_timecode, to_timecode
-from .scene import Fill, Op, compose, hex_colour
+from .scene import Fill, Op, compose, compose_slate_screen, hex_colour
 
 IDLE = "idle"
 PRE_ROLL = "pre_roll"
@@ -55,7 +58,8 @@ class Engine:
     def __init__(self, cfg: GeneratorConfig, width: int, height: int, log_dir: Path,
                  now: Callable[[], datetime] = datetime.now,
                  monotonic: Callable[[], float] = time.monotonic, simulated: bool = False,
-                 display: DisplayControl | None = None, mode_request: str | None = None):
+                 display: DisplayControl | None = None, mode_request: str | None = None,
+                 screen_request: str | None = None):
         self.width, self.height = width, height
         self.simulated = simulated
         self.log_dir = log_dir
@@ -74,6 +78,14 @@ class Engine:
         state = self._load_state()
         self.run_number = _int(state.get("next_run_number"), 1)
         self._saved_mode = state.get("display_mode")
+        # The screen asked for at start (--screen, or the config file's), else the last one
+        # chosen, so a generator started at boot comes back as the slate it was.
+        screen = screen_request or state.get("screen")
+        if screen in SCREENS:
+            self.cfg = replace(self.cfg, screen=screen)
+            self.clock.cfg = self.cfg
+        if self._slate_screen():
+            self.clock.start()
         self.run_log: RunLog | None = None
         self.run_id: str | None = None
         self._pre_roll_until = 0.0
@@ -88,6 +100,7 @@ class Engine:
         self._net_lines: tuple[str, ...] = ()
         self._net_shown = True
         self._config_rev = 0
+        self._time_of_day = self._now().strftime("%H:%M:%S")
         self._relayout()
         self._restore_mode(mode_request)
         self._publish_display()
@@ -120,8 +133,11 @@ class Engine:
     def preview(self) -> dict[str, Any]:
         """The current frame as draw operations, for the web UI to draw on a canvas."""
         with self._lock:
-            cfg, lay, count, show_slate = self._preview_src
-        ops = compose(cfg, lay, count, show_slate)
+            cfg, lay, count, show_slate, time_of_day = self._preview_src
+        if isinstance(lay, layout_mod.SlateScreen):
+            ops = compose_slate_screen(cfg, lay, count, time_of_day)
+        else:
+            ops = compose(cfg, lay, count, show_slate)
         return {"width": lay.width, "height": lay.height, "bg": cfg.clock.bg,
                 "ops": [_op_json(op) for op in ops]}
 
@@ -134,9 +150,15 @@ class Engine:
             self.state = RUNNING
             self.clock.start()
             self._log("counting", count=self.clock.count)
+        self._shown = self.clock.count
+        if self._slate_screen():
+            self._refresh_slate()
+            # Time of day for people to read; the time code still counts displayed frames.
+            self._time_of_day = self._now().strftime("%H:%M:%S")
+            ops = compose_slate_screen(self.cfg, self.layout, self._shown, self._time_of_day)
+            return ops, hex_colour(self.cfg.clock.bg)
         if self.cfg.slate.mode != "off" and self.state != RUNNING:
             self._refresh_slate()
-        self._shown = self.clock.count
         ops = compose(self.cfg, self.layout, self._shown, self._slate_visible())
         return ops, hex_colour(self.cfg.clock.bg)
 
@@ -184,6 +206,9 @@ class Engine:
     def _cmd_start(self) -> None:
         if self.state != IDLE:
             raise CommandError("a run is already in progress")
+        if self._slate_screen():
+            raise CommandError("the screen shows the slate only; switch to the latency test "
+                               "to start a run")
         self.run_id = new_run_id(self._now())
         self.run_log = RunLog(self.log_dir, self.run_id)
         self._net_shown = False
@@ -225,6 +250,9 @@ class Engine:
         cfg = self._fit(GeneratorConfig.from_dict(config))
         if cfg.rate_set != self.cfg.rate_set and self.state != IDLE:
             raise CommandError("stop the run before changing the rate set")
+        screen_changed = cfg.screen != self.cfg.screen
+        if screen_changed and self.state != IDLE:
+            raise CommandError("stop the run before changing the screen")
         rate_changed = (cfg.rate_set, cfg.refresh_hz) != (self.cfg.rate_set, self.cfg.refresh_hz)
         start_changed = (cfg.start_mode, cfg.start_value) != (self.cfg.start_mode,
                                                               self.cfg.start_value)
@@ -232,8 +260,15 @@ class Engine:
         self.clock.cfg = cfg
         if rate_changed:
             self.monitor = FrameMonitor(cfg.refresh_hz)
-        if self.state == IDLE and (rate_changed or start_changed):
+        if self.state == IDLE and (rate_changed or start_changed or screen_changed):
             self.clock.reset()
+        if screen_changed:
+            # The slate screen's time code runs on its own; the test clock waits for Start.
+            if self._slate_screen():
+                self.clock.start()
+            else:
+                self.clock.stop()
+            self._save_state()
         self._config_rev += 1
         self._log("config", config=cfg.to_dict())
         self._refresh_slate(force=True)
@@ -364,6 +399,9 @@ class Engine:
         self._save_state()
         self._refresh_slate(force=True)
 
+    def _slate_screen(self) -> bool:
+        return self.cfg.screen == "slate"
+
     def _slate_visible(self) -> bool:
         mode = self.cfg.slate.mode
         return (mode == "always" or (mode == "pre_roll" and self.state != RUNNING)
@@ -373,18 +411,22 @@ class Engine:
         return self._net_shown and self.state == IDLE and bool(self._net_lines)
 
     def _refresh_slate(self, force: bool = False) -> None:
-        if self.cfg.slate.mode == "off":
+        slate_screen = self._slate_screen()
+        if self.cfg.slate.mode == "off" and not slate_screen:
             lines: tuple[str, ...] = ()
         else:
-            lines = slate_lines(self.cfg, self.run_number, self._now())
-        if self._showing_network():
+            # The slate screen always shows the fields; each field's toggle hides it.
+            lines = slate_lines(self.cfg, self.run_number, self._now(), slate_screen)
+        if (self.cfg.slate_screen.network if slate_screen else self._showing_network()):
             lines += self._net_lines
         if force or lines != self._slate:
             self._slate = lines
             self._relayout()
 
     def _relayout(self) -> None:
-        self.layout = layout_mod.compute(self.cfg, self.width, self.height, self._slate)
+        compute = (layout_mod.compute_slate_screen if self._slate_screen()
+                   else layout_mod.compute)
+        self.layout = compute(self.cfg, self.width, self.height, self._slate)
         self._warnings = list(self.layout.warnings)
 
     def _record(self, ev: FrameEvent) -> None:
@@ -405,6 +447,7 @@ class Engine:
         mon = self.monitor
         status = {
             "state": self.state,
+            "screen": self.cfg.screen,
             "count": self._shown,
             "timecode": tc.hmsf() + tc.ms(),
             "rate_set": self.cfg.rate_set,
@@ -432,7 +475,8 @@ class Engine:
         }
         with self._lock:
             self._status = status
-            self._preview_src = (self.cfg, self.layout, self._shown, self._slate_visible())
+            self._preview_src = (self.cfg, self.layout, self._shown, self._slate_visible(),
+                                 self._time_of_day)
 
     def _state_path(self) -> Path:
         return self.log_dir / "state.json"
@@ -446,7 +490,8 @@ class Engine:
 
     def _save_state(self) -> None:
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        state: dict[str, Any] = {"next_run_number": self.run_number}
+        state: dict[str, Any] = {"next_run_number": self.run_number,
+                                 "screen": self.cfg.screen}
         if self.display and self.display.can_set and self._mode:
             state["display_mode"] = str(self._mode)
         self._state_path().write_text(json.dumps(state))

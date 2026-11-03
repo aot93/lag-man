@@ -72,3 +72,48 @@ def test_patch_rect():
     cfg.patch.mode = "white"
     lay = layout.compute(cfg, 1000, 1000)
     assert lay.patch == layout.Rect(20, 400, 100, 200)
+
+
+def slate_cfg(**screen):
+    cfg = GeneratorConfig(screen="slate")
+    for k, v in screen.items():
+        setattr(cfg.slate_screen, k, v)
+    return cfg
+
+
+@pytest.mark.parametrize("size", [(1920, 1080), (3840, 2160), (1280, 720), (800, 1280)])
+@pytest.mark.parametrize("clock_size,tc_size", [(0.04, 0.02), (0.2, 0.09), (0.5, 0.3)])
+@pytest.mark.parametrize("timecode", [True, False])
+def test_slate_screen_stacks_without_overlap(size, clock_size, tc_size, timecode):
+    w, h = size
+    cfg = slate_cfg(clock_size=clock_size, tc_size=tc_size, timecode=timecode)
+    lay = layout.compute_slate_screen(cfg, w, h, SLATE)
+    rects = [lay.clock, *(lb.rect for lb in lay.labels)]
+    if timecode:
+        assert lay.timecode is not None and lay.clock.bottom <= lay.timecode.y
+        rects.append(lay.timecode)
+    else:
+        assert lay.timecode is None
+    assert lay.slate is not None and lay.slate_lines == SLATE
+    rects.append(lay.slate)
+    for r in rects:
+        assert r.inside(w, h), r
+    for a, b in itertools.combinations(rects, 2):
+        assert not a.intersects(b), (a, b)
+    assert abs((lay.clock.x + lay.clock.w / 2) - w / 2) <= 1
+    assert lay.slate.y >= max(r.bottom for r in rects if r is not lay.slate)
+
+
+def test_slate_screen_clock_is_larger_than_the_test_clock():
+    cfg = slate_cfg()
+    assert layout.compute_slate_screen(cfg, 1920, 1080, SLATE).clock_px > \
+        layout.compute(cfg, 1920, 1080).clock_px
+    assert layout.compute_slate_screen(cfg, 1920, 1080).timecode_px < \
+        layout.compute_slate_screen(cfg, 1920, 1080).clock_px
+
+
+def test_slate_screen_drops_a_slate_too_tall_to_fit():
+    lines = tuple(f"NOTES     line {i}" for i in range(60))
+    lay = layout.compute_slate_screen(slate_cfg(), 1920, 1080, lines)
+    assert lay.slate is None and lay.slate_lines == () and lay.warnings
+    assert lay.clock.inside(1920, 1080)

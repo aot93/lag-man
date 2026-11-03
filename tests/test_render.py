@@ -57,3 +57,19 @@ def test_digits_drawn_inside_clock_rect():
     assert len(in_clock) > 500
     ops = compose(cfg, lay, 888_888)
     assert any(isinstance(o, Text) and o.text == "02:28:08:22" for o in ops)
+
+
+def test_slate_screen_renders():
+    from lagman.generator.scene import compose_slate_screen
+
+    cfg = GeneratorConfig(screen="slate")
+    lay = layout.compute_slate_screen(cfg, 1920, 1080, ("TEST      a",))
+    ops = compose_slate_screen(cfg, lay, 12 * 3600 * 100 + 7, "12:00:00")
+    texts = [o.text for o in ops if isinstance(o, Text)]
+    assert texts[:2] == ["12:00:00", "TIME OF DAY"]
+    assert "12:00:00:01" in texts and "TIME CODE 25 FPS" in texts and "TEST      a" in texts
+    surf = SurfaceRenderer(1920, 1080).draw(ops, (0, 0, 0))
+    c = lay.clock
+    lit = [1 for x in range(c.x, c.right, 3) for y in range(c.y, c.bottom, 3)
+           if surf.get_at((x, y))[0] > 128]
+    assert len(lit) > 500

@@ -1,7 +1,8 @@
 """Full-screen generator: renders the clock locked to the display refresh and serves the
 web control UI.
 
-Keys: Space start/stop a run, R reset the clock, Esc or Q quit.
+Keys: Space start/stop a run, R reset the clock (on the slate screen: jam the time code
+again), Esc or Q quit.
 """
 
 from __future__ import annotations
@@ -18,18 +19,22 @@ from pathlib import Path
 
 from ..core import layout as layout_mod
 from ..core.clock import Clock
-from ..core.config import START_MODES, GeneratorConfig
+from ..core.config import SCREENS, START_MODES, GeneratorConfig
 from ..core.display import DisplayMode, SimulatedDisplay
 from ..core.framemon import REPEAT
 from ..core.slate import slate_lines
 from .engine import IDLE, CommandError, Engine
-from .scene import compose, hex_colour
+from .scene import compose, compose_slate_screen, hex_colour
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="lagman-generator", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", type=Path, help="JSON config or preset file")
+    p.add_argument("--screen", choices=SCREENS,
+                   help="test: the latency test clock (default); slate: the slate only, with "
+                        "a large time-of-day clock and time code. Without this, the screen "
+                        "chosen last (or the config file's) is used")
     p.add_argument("--rate-set", choices=("50", "60"))
     p.add_argument("--tc-rate", type=int, help="time code rate; the refresh rate is fast mode")
     p.add_argument("--start", choices=START_MODES, dest="start_mode")
@@ -61,13 +66,22 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def build_config(args: argparse.Namespace) -> GeneratorConfig:
     data = json.loads(args.config.read_text()) if args.config else {}
-    for key in ("rate_set", "tc_rate", "start_mode", "start_value"):
+    for key in ("screen", "rate_set", "tc_rate", "start_mode", "start_value"):
         value = getattr(args, key)
         if value is not None:
             data[key] = value
     if args.rate_set and args.tc_rate is None and "tc_rate" not in data:
         data["tc_rate"] = {"50": 25, "60": 30}[args.rate_set]
     return GeneratorConfig.from_dict(data)
+
+
+def screen_request(args: argparse.Namespace, cfg: GeneratorConfig) -> str | None:
+    """The screen asked for at start, which wins over the one remembered from last time."""
+    if args.screen:
+        return args.screen
+    if args.config and "screen" in json.loads(args.config.read_text()):
+        return cfg.screen
+    return None
 
 
 def _size(text: str) -> tuple[int, int]:
@@ -118,7 +132,8 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
     """The frame loop. ``renderer`` None means headless: frames are paced by a timer."""
     width, height = size
     engine = Engine(cfg, width, height, args.log_dir, simulated=renderer is None,
-                    display=display, mode_request=args.mode)
+                    display=display, mode_request=args.mode,
+                    screen_request=screen_request(args, cfg))
     for note in engine.notes:
         print(f"warning: {note}", file=sys.stderr)
     for warning in engine.layout.warnings:
@@ -260,11 +275,19 @@ def snapshot(cfg: GeneratorConfig, args: argparse.Namespace) -> int:
     w, h = _size(args.size)
     clock = Clock(cfg)
     count = clock.count if args.count is None else args.count
-    lines = slate_lines(cfg, 1, datetime.now()) if cfg.slate.mode != "off" else ()
-    lay = layout_mod.compute(cfg, w, h, lines)
+    now = datetime.now()
+    slate_screen = cfg.screen == "slate"
+    lines = (slate_lines(cfg, 1, now, slate_screen)
+             if cfg.slate.mode != "off" or slate_screen else ())
+    if slate_screen:
+        lay = layout_mod.compute_slate_screen(cfg, w, h, lines)
+        ops = compose_slate_screen(cfg, lay, count, now.strftime("%H:%M:%S"))
+    else:
+        lay = layout_mod.compute(cfg, w, h, lines)
+        ops = compose(cfg, lay, count)
     for warning in lay.warnings:
         print(f"warning: {warning}", file=sys.stderr)
-    surface = SurfaceRenderer(w, h).draw(compose(cfg, lay, count), hex_colour(cfg.clock.bg))
+    surface = SurfaceRenderer(w, h).draw(ops, hex_colour(cfg.clock.bg))
     pygame.image.save(surface, str(args.snapshot))
     return 0
 

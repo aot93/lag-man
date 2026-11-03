@@ -50,6 +50,26 @@
   <div class="layout">
     <div class="col">
       <section class="card">
+        <h2 class="section">Screen</h2>
+        <div class="seg" id="screen" data-path="screen" role="group" aria-label="Screen">
+          <button class="btn" type="button" value="test">Latency test</button>
+          <button class="btn" type="button" value="slate">Slate only</button>
+        </div>
+        <div id="slate-screen" class="mt-s" hidden>
+          <div class="form">
+            <label>Time of day size <output data-for="slate_screen.clock_size"></output><input type="range" min="0.04" max="0.5" step="0.01" data-path="slate_screen.clock_size"></label>
+            <label>Time code size <output data-for="slate_screen.tc_size"></output><input type="range" min="0.02" max="0.3" step="0.01" data-path="slate_screen.tc_size"></label>
+          </div>
+          <div class="checks">
+            <label><input type="checkbox" data-path="slate_screen.timecode"> Time code</label>
+            <label><input type="checkbox" data-path="slate_screen.network"> Control page address</label>
+          </div>
+          <p class="hint">A large time-of-day clock from the Pi's clock, with time code under it and the slate fields below. The time code runs at the time code rate from the start value; choose Time of day to jam it to the clock, and Reset clock to jam it again. The slate fields always show here: untick a field to hide it. There are no runs or run logs on this screen.</p>
+        </div>
+        <p class="hint" id="screen-test-hint">The clock and code strip for the latency test.</p>
+      </section>
+
+      <section class="card">
         <h2 class="section">Run</h2>
         <div class="toolbar">
           <button class="btn primary" id="start" type="button">Start</button>

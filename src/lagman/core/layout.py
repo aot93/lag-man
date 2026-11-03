@@ -1,4 +1,4 @@
-"""Screen layout for the clock, code strip, slate and sync patch.
+"""Screen layout for the clock, code strip, slate and sync patch, and for the slate screen.
 
 Pure geometry in integer pixels. Text is measured with fixed monospace metrics so layout
 does not depend on a font library; the renderer uses a font with the same metrics.
@@ -67,6 +67,35 @@ class Layout:
     slate_lines: tuple[str, ...] = ()
     patch: Rect | None = None
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Label:
+    rect: Rect
+    px: int
+    text: str
+
+
+@dataclass(frozen=True)
+class SlateScreen:
+    """The slate on its own: a time-of-day clock, time code under it, then the slate."""
+
+    width: int
+    height: int
+    clock_px: int
+    clock: Rect
+    timecode_px: int
+    timecode: Rect | None
+    labels: tuple[Label, ...]
+    slate_px: int = 0
+    slate: Rect | None = None
+    slate_lines: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+
+TOD_CHARS = len("00:00:00")
+LABEL_SCALE = 0.3  # caption height, in the time code's ems
+STACK_GAP = 0.3  # gap between the blocks, in time-of-day ems
 
 
 def text_size(chars: int, px: int, lines: int = 1) -> tuple[int, int]:
@@ -155,6 +184,70 @@ def _place_slate(cfg: GeneratorConfig, width: int, height: int, margin: int, blo
             break
         px = max(SLATE_MIN_PX, int(px * 0.9))
     return 0, None
+
+
+def compute_slate_screen(cfg: GeneratorConfig, width: int, height: int,
+                         slate_lines: tuple[str, ...] = ()) -> SlateScreen:
+    """Centre the blocks in a column, shrinking them together until the column fits."""
+    s = cfg.slate_screen
+    margin = round(MARGIN * height)
+    avail_w, avail_h = width - 2 * margin, height - 2 * margin
+    labels = ["TIME OF DAY"] + ([f"TIME CODE {cfg.tc_rate} FPS"] if s.timecode else [])
+    lines = slate_lines
+    warnings: list[str] = []
+    scale = 1.0
+    while True:
+        # Each block is first held to the screen's width, then all shrink for its height.
+        tod_px = max(8, min(round(s.clock_size * height * scale), _fit_px(TOD_CHARS, avail_w)))
+        tc_px = (max(8, min(round(s.tc_size * height * scale), _fit_px(MAIN_CHARS, avail_w)))
+                 if s.timecode else 0)
+        slate_px = 0
+        if lines:
+            chars = max(len(line) for line in lines)
+            slate_px = max(SLATE_MIN_PX, min(round(cfg.slate.size * height * scale),
+                                             _fit_px(chars + 2 * SLATE_PAD / CHAR_W, avail_w)))
+        label_px = max(SLATE_MIN_PX, round(LABEL_SCALE * (tc_px or tod_px * 0.5)))
+        blocks = [(TOD_CHARS, tod_px, 1), (len(labels[0]), label_px, 1)]
+        if s.timecode:
+            blocks += [(MAIN_CHARS, tc_px, 1), (len(labels[1]), label_px, 1)]
+        if lines:
+            blocks.append((max(len(line) for line in lines), slate_px, len(lines)))
+        sizes = [text_size(chars, px, n) for chars, px, n in blocks]
+        if lines:
+            pad = round(SLATE_PAD * slate_px)
+            sizes[-1] = (sizes[-1][0] + 2 * pad, sizes[-1][1] + 2 * pad)
+        # Each caption sits right under its digits; the gap goes before the next block.
+        gap = round(STACK_GAP * tod_px)
+        gaps = [gap if i and i % 2 == 0 else 0 for i in range(len(sizes))]
+        total_h = sum(h for _, h in sizes) + sum(gaps)
+        if total_h <= avail_h and max(w for w, _ in sizes) <= avail_w:
+            break
+        if scale < 0.1 or (lines and slate_px == SLATE_MIN_PX and scale < 0.5):
+            if lines:
+                # The slate cannot fit at a readable size: show the clocks alone.
+                warnings.append("slate does not fit under the clock at this size; hidden")
+                lines, scale = (), 1.0
+                continue
+            break
+        scale *= 0.9
+
+    rects = []
+    y = margin + max(0, (avail_h - total_h) // 2)
+    for i, (w, h) in enumerate(sizes):
+        y += gaps[i]
+        rects.append(Rect((width - w) // 2, y, w, h))
+        y += h
+    out_labels = [Label(rects[1], label_px, labels[0])]
+    if s.timecode:
+        out_labels.append(Label(rects[3], label_px, labels[1]))
+    return SlateScreen(width, height, tod_px, rects[0], tc_px,
+                       rects[2] if s.timecode else None, tuple(out_labels),
+                       slate_px if lines else 0, rects[-1] if lines else None, lines,
+                       tuple(warnings))
+
+
+def _fit_px(chars: float, avail_w: int) -> int:
+    return int(avail_w / (chars * CHAR_W))
 
 
 def _clamp(v: int, lo: int, hi: int) -> int:

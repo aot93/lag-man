@@ -20,12 +20,20 @@ LABELS = {
 MAX_VALUE_CHARS = 60
 
 
-def slate_lines(cfg: GeneratorConfig, run_number: int, now: datetime) -> tuple[str, ...]:
+def slate_lines(cfg: GeneratorConfig, run_number: int, now: datetime,
+                slate_screen: bool = False) -> tuple[str, ...]:
     """Enabled slate fields as plain ``LABEL  value`` lines, plus the generator settings.
 
-    Run number and date default to the live values when left blank (SPEC.md, "Slate").
+    Run number and date default to the live values when left blank (SPEC.md, "Slate"). On
+    the slate screen there are no runs, its clock shows the time and it captions its own
+    time code, so a blank run number stays blank, the date is the date alone and the
+    settings line is left out.
     """
-    auto = {"run_number": str(run_number), "date_time": now.strftime("%Y-%m-%d %H:%M:%S")}
+    if slate_screen:
+        auto = {"date_time": now.strftime("%Y-%m-%d")}
+    else:
+        auto = {"run_number": str(run_number),
+                "date_time": now.strftime("%Y-%m-%d %H:%M:%S")}
     width = max(len(label) for label in LABELS.values())
     lines = []
     for name, label in LABELS.items():
@@ -35,7 +43,8 @@ def slate_lines(cfg: GeneratorConfig, run_number: int, now: datetime) -> tuple[s
         value = _clean(f.value) or auto.get(name, "")
         if value:
             lines.append(f"{label:<{width}}  {value}")
-    lines.append(f"{'CLOCK':<{width}}  {cfg.tc_rate} fps TC / {cfg.refresh_hz} Hz")
+    if not slate_screen:
+        lines.append(f"{'CLOCK':<{width}}  {cfg.tc_rate} fps TC / {cfg.refresh_hz} Hz")
     return tuple(lines)
 
 

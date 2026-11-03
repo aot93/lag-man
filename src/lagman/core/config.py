@@ -12,6 +12,9 @@ START_MODES = ("zero", "value", "time_of_day")
 SLATE_POSITIONS = ("top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right")
 SLATE_MODES = ("off", "pre_roll", "always")
 PATCH_MODES = ("off", "white", "black")
+# What the screen shows: the latency test (clock and code strip), or a slate on its own with
+# a large time-of-day clock and, optionally, time code.
+SCREENS = ("test", "slate")
 SLATE_FIELDS = (
     "test_name", "camera_name", "camera_fps", "run_number", "date_time",
     "operator", "location", "notes",
@@ -61,7 +64,18 @@ class PatchConfig:
 
 
 @dataclass
+class SlateScreenConfig:
+    # Digit heights as fractions of screen height. Shrunk together to fit the screen.
+    clock_size: float = 0.2
+    timecode: bool = True
+    tc_size: float = 0.09
+    # The control page's address under the slate fields.
+    network: bool = True
+
+
+@dataclass
 class GeneratorConfig:
+    screen: str = "test"
     rate_set: str = "50"
     tc_rate: int = 25
     start_mode: str = "zero"
@@ -69,6 +83,7 @@ class GeneratorConfig:
     clock: ClockConfig = field(default_factory=ClockConfig)
     slate: SlateConfig = field(default_factory=SlateConfig)
     patch: PatchConfig = field(default_factory=PatchConfig)
+    slate_screen: SlateScreenConfig = field(default_factory=SlateScreenConfig)
     # The refresh the display runs at; 0 is the rate set's standard rate. Set by the
     # generator from the display mode, never saved in presets.
     display_hz: int = field(default=0, metadata={"runtime": True})
@@ -86,6 +101,7 @@ class GeneratorConfig:
         if self.tc_rate not in rates:
             raise ValueError(f"time code rate {self.tc_rate} not in rate set {rs.key} at "
                              f"{self.refresh_hz} Hz ({', '.join(map(str, rates))})")
+        _one_of("screen", self.screen, SCREENS)
         _one_of("start_mode", self.start_mode, START_MODES)
         c = self.clock
         _between("clock.cx", c.cx, 0, 1)
@@ -106,6 +122,9 @@ class GeneratorConfig:
         _one_of("patch.mode", p.mode, PATCH_MODES)
         for name in ("x", "y", "w", "h"):
             _between(f"patch.{name}", getattr(p, name), 0, 1)
+        ss = self.slate_screen
+        _between("slate_screen.clock_size", ss.clock_size, 0.04, 0.5)
+        _between("slate_screen.tc_size", ss.tc_size, 0.02, 0.3)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -118,12 +137,14 @@ class GeneratorConfig:
     def from_dict(cls, data: dict[str, Any], display_hz: int = 0) -> GeneratorConfig:
         """Build from JSON, filling missing keys with defaults and rejecting unknown ones."""
         base = cls()
-        top = _pick(cls, data, nested=("clock", "slate", "patch"))
+        top = _pick(cls, data, nested=("clock", "slate", "patch", "slate_screen"))
         cfg = replace(
             base, **top, display_hz=display_hz,
             clock=replace(base.clock, **_pick(ClockConfig, data.get("clock", {}))),
             patch=replace(base.patch, **_pick(PatchConfig, data.get("patch", {}))),
             slate=_slate_from_dict(data.get("slate", {})),
+            slate_screen=replace(base.slate_screen,
+                                 **_pick(SlateScreenConfig, data.get("slate_screen", {}))),
         )
         cfg.validate()
         return cfg

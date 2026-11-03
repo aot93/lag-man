@@ -24,12 +24,13 @@ class Loop:
             self.engine.presented(self.t)
 
 
-def make(tmp_path, cfg=None, display=None, mode=None):
+def make(tmp_path, cfg=None, display=None, mode=None, screen=None):
     from lagman.core.config import GeneratorConfig
     holder = {}
     eng = Engine(cfg or GeneratorConfig(), 1920, 1080, tmp_path / "runs",
                  now=lambda: datetime(2026, 10, 22, 12, 0, 0),
-                 monotonic=lambda: holder["loop"].mono, display=display, mode_request=mode)
+                 monotonic=lambda: holder["loop"].mono, display=display, mode_request=mode,
+                 screen_request=screen)
     holder["loop"] = Loop(eng)
     return eng, holder["loop"]
 
@@ -270,3 +271,80 @@ def test_network_lines_join_the_slate(tmp_path):
     loop.frames(1)
     texts = _texts(eng)
     assert any(t.startswith("CLOCK") for t in texts) and any("http" in t for t in texts)
+
+
+def _slate_screen(eng, loop, **slate):
+    cfg = eng.cfg.to_dict()
+    cfg["screen"] = "slate"
+    cfg["slate"] |= slate
+    return call(eng, loop, "set_config", config=cfg)
+
+
+def test_slate_screen_shows_time_of_day_and_running_time_code(tmp_path):
+    eng, loop = make(tmp_path)
+    eng.cfg.slate.fields["camera_name"].value = "Cam B"
+    _slate_screen(eng, loop)  # the fields show even with the slate's mode off
+    loop.frames(4)
+    st = eng.status()
+    assert st["screen"] == "slate" and st["state"] == IDLE
+    assert st["count"] >= 3  # time code runs without a run
+    texts = _texts(eng)
+    assert "12:00:00" in texts  # time of day, from the system clock
+    assert any(t.startswith("00:00:00:") for t in texts)
+    assert "CAMERA    Cam B" in texts and "DATE      2026-10-22" in texts
+    assert not any(t.startswith(("CLOCK", "RUN")) for t in texts)
+    with pytest.raises(CommandError):
+        call(eng, loop, "start")
+    assert not list((tmp_path / "runs").glob("*.jsonl"))
+
+
+def test_slate_screen_time_code_from_time_of_day_and_reset_jams_it(tmp_path):
+    eng, loop = make(tmp_path)
+    cfg = eng.cfg.to_dict() | {"screen": "slate", "start_mode": "time_of_day"}
+    call(eng, loop, "set_config", config=cfg)
+    loop.frames(10)
+    assert eng.status()["timecode"].startswith("12:00:00:")
+    call(eng, loop, "reset")
+    assert eng.status()["count"] < 12 * 3600 * 100 + 10
+
+
+def test_slate_screen_back_to_test_stops_the_clock(tmp_path):
+    eng, loop = make(tmp_path)
+    _slate_screen(eng, loop)
+    loop.frames(5)
+    cfg = eng.cfg.to_dict() | {"screen": "test"}
+    call(eng, loop, "set_config", config=cfg)
+    loop.frames(5)
+    assert eng.status()["count"] == 0
+    call(eng, loop, "start")
+    assert eng.state == RUNNING
+
+
+def test_slate_screen_not_during_a_run(tmp_path):
+    eng, loop = make(tmp_path)
+    call(eng, loop, "start")
+    with pytest.raises(CommandError):
+        _slate_screen(eng, loop)
+
+
+def test_slate_screen_shows_the_network_unless_turned_off(tmp_path):
+    eng, loop = make(tmp_path)
+    _slate_screen(eng, loop)
+    call(eng, loop, "set_network", lines=("WIRED     http://192.168.1.50:8080/",))
+    loop.frames(1)
+    assert any("http" in t for t in _texts(eng))
+    cfg = eng.cfg.to_dict()
+    cfg["slate_screen"]["network"] = False
+    call(eng, loop, "set_config", config=cfg)
+    loop.frames(1)
+    assert not any("http" in t for t in _texts(eng))
+
+
+def test_slate_screen_is_remembered(tmp_path):
+    eng, loop = make(tmp_path)
+    _slate_screen(eng, loop)
+    eng2, loop2 = make(tmp_path)
+    loop2.frames(3)
+    assert eng2.cfg.screen == "slate" and eng2.status()["count"] >= 2
+    eng3, _ = make(tmp_path, screen="test")  # --screen wins over the saved one
+    assert eng3.cfg.screen == "test"

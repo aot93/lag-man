@@ -37,6 +37,9 @@ def test_partial_config_fills_defaults():
     {"bogus": 1},
     {"slate": {"position": "middle"}},
     {"slate": {"fields": {"shoe_size": {}}}},
+    {"screen": "tv"},
+    {"slate_screen": {"clock_size": 0.9}},
+    {"slate_screen": {"timecode": "yes"}},
 ])
 def test_config_rejects(bad):
     with pytest.raises(ValueError):
@@ -64,6 +67,14 @@ def test_clock_start_modes():
     cfg = GeneratorConfig(start_mode="time_of_day")
     clock = Clock(cfg, now=lambda: datetime(2026, 10, 22, 13, 30, 15, 250_000))
     assert clock.count == (13 * 3600 + 30 * 60 + 15) * 100 + 25
+
+
+def test_slate_lines_for_the_slate_screen():
+    cfg = GeneratorConfig()
+    lines = slate_lines(cfg, 3, datetime(2026, 10, 22, 14, 5, 12), slate_screen=True)
+    assert lines == ("DATE      2026-10-22",)  # no run, no time, no settings line
+    cfg.slate.fields["run_number"].value = "Take 4"
+    assert "RUN       Take 4" in slate_lines(cfg, 3, datetime(2026, 10, 22), slate_screen=True)
 
 
 def test_slate_lines():

@@ -83,6 +83,9 @@ function syncForm() {
   for (const b of $("rate-set").querySelectorAll("button")) {
     b.classList.toggle("on", b.value === config.rate_set);
   }
+  const slateScreen = config.screen === "slate";
+  $("slate-screen").hidden = !slateScreen;
+  $("screen-test-hint").hidden = slateScreen;
   renderTcRates();
   renderSlateFields();
   if (document.activeElement !== $("start-value")) $("start-value").value = config.start_value;
@@ -200,10 +203,13 @@ function renderStatus() {
   const s = status;
   $("kf-tc").textContent = s.timecode;
   $("kf-count").textContent = s.count.toLocaleString("en-GB");
-  const stateLabel = s.state === "pre_roll" ? `Slate ${s.pre_roll_remaining.toFixed(1)} s` : STATE_LABELS[s.state];
+  const slateOnly = s.screen === "slate";
+  const stateLabel = slateOnly ? "Slate only"
+    : s.state === "pre_roll" ? `Slate ${s.pre_roll_remaining.toFixed(1)} s` : STATE_LABELS[s.state];
   $("kf-state").textContent = stateLabel;
   $("kf-state").parentElement.className = `kf ${s.state === "running" ? "ok" : ""}`;
-  $("kf-run").textContent = s.state === "idle" ? `Next run ${s.run_number}` : `Run ${s.run_number} · ${s.run_id}`;
+  $("kf-run").textContent = slateOnly ? "Time code running · no runs"
+    : s.state === "idle" ? `Next run ${s.run_number}` : `Run ${s.run_number} · ${s.run_id}`;
 
   const hz = s.measured_hz;
   $("kf-hz").textContent = hz ? `${hz.toFixed(2)} Hz` : "-- Hz";
@@ -229,9 +235,11 @@ function renderStatus() {
   $("layout-alert").hidden = !lw.length;
   $("layout-alert-text").textContent = lw.join(" ");
 
-  $("start").disabled = s.state !== "idle";
+  $("start").disabled = s.state !== "idle" || slateOnly;
+  $("start").title = slateOnly ? "Switch the screen to Latency test to start a run" : "";
   $("stop").disabled = s.state === "idle";
   for (const b of $("rate-set").querySelectorAll("button")) b.disabled = s.state !== "idle";
+  for (const b of $("screen").querySelectorAll("button")) b.disabled = s.state !== "idle";
 
   renderEvents(s.recent_events);
   renderTcRates();

@@ -28,7 +28,8 @@ uv run lagman-generator --windowed 1280x720 --run             # window, for deve
 uv run lagman-generator --snapshot frame.png --count 123456   # render one frame, no display
 ```
 
-Keys: Space start/stop a run, R reset, Esc or Q quit. On the Pi, `deploy/install-pi.sh`
+Keys: Space start/stop a run, R reset (on the slate screen, jam the time code again), Esc or
+Q quit. On the Pi, `deploy/install-pi.sh`
 starts it at boot and lets the web UI change the network (below). Settings can also come from a JSON
 file (`--config`), in the same format as the presets the web UI saves.
 
@@ -66,6 +67,30 @@ curl -X POST localhost:8080/api/stop
 
 The full route list is in `src/lagman/web/server.py`. The API is plain HTTP with polling
 rather than WebSocket, which keeps the server in the standard library.
+
+## Slate only
+
+The Screen card switches between the latency test and **Slate only**: a large time-of-day
+clock, time code under it, and the slate fields below, for labelling recordings without a
+test. Start it that way with `--screen slate` (on the Pi, in `LAGMAN_ARGS`).
+
+- **Time of day** comes from the generator's clock, and changes on the frame where the
+  second changes. The Pi sets its clock from a time server once it has internet. With no
+  internet (hotspot mode) it needs the Pi 5's RTC battery, or the clock is wrong after a
+  boot. If the clock is set after the slate starts, press Reset clock to jam the time code
+  again.
+- **Time code** runs at the time code rate (25 or 50fps, or 30 or 60fps for the 60Hz set),
+  counting displayed frames like the test clock, from the start value. Choose **Time of
+  day** as the start to jam it to the clock; Reset clock jams it again. Over a long day it
+  can drift from the clock by the display's crystal error (a few seconds a day at most);
+  jam it again before a take that has to match. Turn it off for the clock and slate alone.
+- **Slate fields** always show on this screen; untick a field to hide it. A blank run
+  number stays blank and the date shows without the time.
+- **Control page address:** shown under the fields unless turned off.
+- There are no runs or run logs on this screen. The screen chosen last comes back at the
+  next start; `--screen`, or a `--config` file that sets `screen`, overrides it. The slate
+  fields are not remembered between starts: save them as a preset and start with
+  `--config presets/<name>.json` to bring them back at boot.
 
 ## How the timing works
 
