@@ -241,6 +241,7 @@ function renderStatus() {
   for (const b of $("rate-set").querySelectorAll("button")) b.disabled = s.state !== "idle";
   for (const b of $("screen").querySelectorAll("button")) b.disabled = s.state !== "idle";
 
+  renderTimeOfDay(s.time_of_day);
   renderEvents(s.recent_events);
   renderTcRates();
   renderDisplayAlert(s);
@@ -250,6 +251,36 @@ function renderStatus() {
     loadDisplay();
   }
   $("foot-display").textContent = `Output ${s.display.width} × ${s.display.height} · counting at ${s.refresh_hz} Hz`;
+}
+
+function fmtSeconds(s) {
+  const a = Math.abs(s);
+  if (a < 120) return `${Math.round(a)} s`;
+  if (a < 7200) return `${Math.round(a / 60)} min`;
+  return `${(a / 3600).toFixed(1)} h`;
+}
+
+function renderTimeOfDay(t) {
+  // The generator's time of day, as a local time like this device's, against this device.
+  const diff = (new Date(t.now).getTime() - Date.now()) / 1000;
+  let text = t.source === "browser"
+    ? `From a browser's time, set at ${t.synced_at.slice(11)}.`
+    : "From the generator's own clock.";
+  if (Math.abs(diff) >= 2) text += ` It is ${fmtSeconds(diff)} ${diff < 0 ? "behind" : "ahead of"} this device; set it from this device to match.`;
+  else text += " It matches this device.";
+  $("tod-source").textContent = text;
+  $("tod-system").disabled = t.source !== "browser";
+}
+
+async function syncTime() {
+  // Allow for the trip to the generator: half the round trip of a status request.
+  const t0 = performance.now();
+  await act(() => api("GET", "status"));
+  const half = (performance.now() - t0) / 2;
+  const out = await act(() => api("POST", "time", {
+    epoch_ms: Math.round(Date.now() + half), tz_offset_min: new Date().getTimezoneOffset(),
+  }));
+  if (out) refreshPreview();
 }
 
 function renderDisplayAlert(s) {
@@ -572,6 +603,8 @@ function fillNetworkForms(n) {
   $("net-h-password").placeholder = n.profiles.hotspot ? "Saved; blank keeps it" : "8 to 63 characters";
   $("net-h-band").value = hotspot.band;
   $("net-h-address").value = hotspot.address;
+  $("net-f-enabled").checked = n.failover.enabled;
+  $("net-f-after").value = n.failover.after_s;
   setWifiMode(wifi && wifi.mode === "hotspot" ? "hotspot" : "client");
 }
 
@@ -598,6 +631,8 @@ function renderNetwork(n) {
   $("net-error").hidden = !err;
   $("net-error-text").textContent = err || "";
   $("net-note").textContent = n.note;
+  $("net-f-status").hidden = !n.failover.status;
+  $("net-f-status").textContent = n.failover.status || "";
   $("net-forms").disabled = !n.available || !!n.pending;
   if (n.available && !n.pending && !netFilled) {
     netFilled = true;
@@ -660,6 +695,19 @@ async function applyNetwork(kind, body) {
   }
 }
 
+async function saveFailover() {
+  try {
+    network = await api("PUT", "network/failover", {
+      enabled: $("net-f-enabled").checked, after_s: Number($("net-f-after").value),
+    });
+    netFormError = "";
+  } catch (e) {
+    netFormError = e.message;
+  }
+  if (network) renderNetwork(network);
+  if (netFormError) $("net-error").scrollIntoView({ block: "nearest" });
+}
+
 async function netDecision(path) {
   const out = await act(() => api("POST", `network/${path}`));
   if (out) {
@@ -706,6 +754,7 @@ function bindNetwork() {
     band: $("net-h-band").value, address: $("net-h-address").value.trim(),
   }));
   $("net-c-scan-btn").addEventListener("click", scanWifi);
+  $("net-f-apply").addEventListener("click", saveFailover);
   $("net-keep").addEventListener("click", () => netDecision("confirm"));
   $("net-revert").addEventListener("click", () => netDecision("revert"));
 }
@@ -730,6 +779,8 @@ async function init() {
   $("start").addEventListener("click", command("start"));
   $("stop").addEventListener("click", command("stop"));
   $("reset").addEventListener("click", command("reset"));
+  $("tod-sync").addEventListener("click", syncTime);
+  $("tod-system").addEventListener("click", () => act(() => api("DELETE", "time")));
   $("ack").addEventListener("click", command("warnings/ack"));
   $("set-start").addEventListener("click", async () => {
     if (await act(() => api("POST", "start-value", { value: $("start-value").value.trim() }))) {

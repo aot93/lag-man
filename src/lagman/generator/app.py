@@ -157,6 +157,7 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
 
         net_slate = NetworkSlate(engine, server.network, server.port)
         net_slate.start()
+        failover = server.network.start_failover()
 
     if args.run:
         engine.apply("start")
@@ -210,6 +211,7 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
         pass
     finally:
         if server:
+            failover.set()
             net_slate.stop()
             server.stop()
         engine.close()
@@ -223,8 +225,9 @@ def _network(args: argparse.Namespace, headless: bool):
     """Network control for the web UI, or None to leave it off."""
     from ..web.network import NetworkControl, NMBackend, SimulatedNetwork
 
+    settings = args.log_dir / "network.json"
     if headless:
-        return NetworkControl(SimulatedNetwork(),
+        return NetworkControl(SimulatedNetwork(), settings_path=settings,
                               note="Simulated network: nothing on this computer is changed.")
     if not args.network:
         return None
@@ -233,7 +236,8 @@ def _network(args: argparse.Namespace, headless: bool):
               file=sys.stderr)
         return NetworkControl(None, note="Network control needs NetworkManager (nmcli), "
                                          "which is not installed.")
-    return NetworkControl(NMBackend(), note="Changes go through NetworkManager.")
+    return NetworkControl(NMBackend(), note="Changes go through NetworkManager.",
+                          settings_path=settings)
 
 
 def _handle_keys(engine: Engine) -> bool:

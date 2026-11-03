@@ -67,6 +67,12 @@
           <p class="hint">A large time-of-day clock from the Pi's clock, with time code under it and the slate fields below. The time code runs at the time code rate from the start value; choose Time of day to jam it to the clock, and Reset clock to jam it again. The slate fields always show here: untick a field to hide it. There are no runs or run logs on this screen.</p>
         </div>
         <p class="hint" id="screen-test-hint">The clock and code strip for the latency test.</p>
+        <div class="sub">Time of day</div>
+        <p class="hint" id="tod-source"></p>
+        <div class="row">
+          <button class="btn small primary" id="tod-sync" type="button">Set from this device</button>
+          <button class="btn small" id="tod-system" type="button">Use the generator's clock</button>
+        </div>
       </section>
 
       <section class="card">
@@ -264,6 +270,15 @@
             <div class="row"><button class="btn primary small" id="net-h-apply" type="button">Start hotspot</button></div>
             <p class="hint">The Pi makes its own Wi-Fi network and gives devices that join an address by DHCP. It keeps the address above, so the control page is always at that address on port 8080.</p>
           </div>
+
+          <div class="sub">Hotspot failover</div>
+          <div class="checks"><label><input type="checkbox" id="net-f-enabled"> Start the hotspot if no network connects</label></div>
+          <div class="form mt-s">
+            <label>Wait (seconds)<input type="number" id="net-f-after" min="10" max="600" step="1"></label>
+          </div>
+          <div class="row"><button class="btn primary small" id="net-f-apply" type="button">Save failover</button></div>
+          <p class="hint" id="net-f-status" hidden></p>
+          <p class="hint">At start, if neither port is on a network after this long, the saved hotspot starts, so the control page can still be reached. It lasts until the next start, which tries the Wi-Fi network again.</p>
         </fieldset>
         <p class="hint">After a change, reconnect at the new address and press Keep within two minutes, or the previous settings come back. Set a web UI password before using this on a shared network.</p>
       </section>

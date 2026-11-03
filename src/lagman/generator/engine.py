@@ -33,6 +33,7 @@ from ..core.rates import get_rate_set
 from ..core.runlog import RunLog, new_run_id
 from ..core.slate import slate_lines
 from ..core.timecode import parse_timecode, to_timecode
+from ..core.wallclock import WallClock
 from .scene import Fill, Op, compose, compose_slate_screen, hex_colour
 
 IDLE = "idle"
@@ -63,7 +64,9 @@ class Engine:
         self.width, self.height = width, height
         self.simulated = simulated
         self.log_dir = log_dir
-        self._now, self._mono = now, monotonic
+        # Time of day: the system clock, or a browser's time lent to it (no clock battery).
+        self.wall = WallClock(now, monotonic)
+        self._now, self._mono = self.wall.now, monotonic
         self._commands: queue.Queue[_Command] = queue.Queue()
         self._lock = threading.Lock()
         self.notes: list[str] = []  # startup messages for the console
@@ -71,7 +74,7 @@ class Engine:
         self._mode = display.current() if display else None
         self._modes = usable_modes(display.modes()) if display else []
         self.cfg = self._fit(cfg)
-        self.clock = Clock(self.cfg, now=now)
+        self.clock = Clock(self.cfg, now=self._now)
         self.monitor = FrameMonitor(self.cfg.refresh_hz)
         self._mismatch = False
         self.state = IDLE
@@ -210,7 +213,7 @@ class Engine:
             raise CommandError("the screen shows the slate only; switch to the latency test "
                                "to start a run")
         self.run_id = new_run_id(self._now())
-        self.run_log = RunLog(self.log_dir, self.run_id)
+        self.run_log = RunLog(self.log_dir, self.run_id, now=self._now)
         self._net_shown = False
         self._refresh_slate(force=True)
         self.run_log.write("run_start", run_id=self.run_id, run_number=self.run_number,
@@ -281,6 +284,30 @@ class Engine:
             self._net_lines = lines
             self._net_shown = True
             self._refresh_slate(force=True)
+
+    def _cmd_sync_time(self, time: datetime) -> dict[str, Any]:
+        self.wall.sync(time)
+        self._after_time_change()
+        return self.time_info()
+
+    def _cmd_clear_time_sync(self) -> dict[str, Any]:
+        self.wall.clear()
+        self._after_time_change()
+        return self.time_info()
+
+    def _after_time_change(self) -> None:
+        self._log("time_sync", source=self.wall.source, offset_s=round(self.wall.offset_s(), 3))
+        # Jam a time-of-day time code to the new time, but never under a run.
+        if self.state == IDLE and self.cfg.start_mode == "time_of_day":
+            self.clock.reset()
+        self._refresh_slate(force=True)
+
+    def time_info(self) -> dict[str, Any]:
+        """Where the time of day comes from. Render loop thread (status has a copy)."""
+        synced = self.wall.synced_at
+        return {"source": self.wall.source, "offset_s": round(self.wall.offset_s(), 3),
+                "now": self._now().isoformat(timespec="milliseconds"),
+                "synced_at": synced.isoformat(timespec="seconds") if synced else None}
 
     def _cmd_ack_warnings(self) -> None:
         self._unacked = 0
@@ -448,6 +475,7 @@ class Engine:
         status = {
             "state": self.state,
             "screen": self.cfg.screen,
+            "time_of_day": self.time_info(),
             "count": self._shown,
             "timecode": tc.hmsf() + tc.ms(),
             "rate_set": self.cfg.rate_set,

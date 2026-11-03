@@ -254,3 +254,30 @@ def hotspot_from_nm(fields: dict[str, str]) -> dict[str, Any]:
     band = {v: k for k, v in BANDS.items()}.get(fields.get("802-11-wireless.band", ""), "2.4")
     address = fields.get("ipv4.addresses", "").split(",")[0].strip() or HOTSPOT_ADDRESS
     return {"ssid": fields.get("802-11-wireless.ssid", ""), "band": band, "address": address}
+
+
+# ---- hotspot failover -------------------------------------------------------------------
+
+FAILOVER_MIN_S, FAILOVER_MAX_S = 10, 600
+
+
+def connected(info: dict[str, Any]) -> bool:
+    """Whether a port has a usable address on someone else's network: wired, or Wi-Fi
+    joined to a network. A link-local address (169.254.x.x) means DHCP never answered."""
+    for kind, d in (info.get("devices") or {}).items():
+        if kind == "wifi" and d.get("mode") == "hotspot":
+            continue
+        for address in d.get("addresses") or ():
+            if not ipaddress.IPv4Interface(address).ip.is_link_local:
+                return True
+    return False
+
+
+def failover_from_dict(data: dict[str, Any]) -> dict[str, Any]:
+    enabled, after = data.get("enabled"), data.get("after_s", 30)
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be true or false")
+    if isinstance(after, bool) or not isinstance(after, int) or not (
+            FAILOVER_MIN_S <= after <= FAILOVER_MAX_S):
+        raise ValueError(f"the wait must be {FAILOVER_MIN_S} to {FAILOVER_MAX_S} seconds")
+    return {"enabled": enabled, "after_s": after}

@@ -8,13 +8,16 @@ Events: ``run_start`` (settings, slate, start count), ``frame`` (dropped or repe
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
 
 
 class RunLog:
-    def __init__(self, directory: Path, run_id: str):
+    def __init__(self, directory: Path, run_id: str,
+                 now: Callable[[], datetime] = datetime.now):
+        self._now = now
         directory.mkdir(parents=True, exist_ok=True)
         self.path = directory / f"{run_id}.jsonl"
         self._fh: IO[str] | None = self.path.open("a", encoding="utf-8")
@@ -22,7 +25,7 @@ class RunLog:
     def write(self, event: str, **fields: Any) -> None:
         if self._fh is None:
             raise ValueError("run log is closed")
-        record = {"event": event, "t": datetime.now().astimezone().isoformat(), **fields}
+        record = {"event": event, "t": self._now().astimezone().isoformat(), **fields}
         self._fh.write(json.dumps(record, separators=(",", ":")) + "\n")
         self._fh.flush()
 

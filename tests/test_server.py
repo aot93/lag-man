@@ -210,3 +210,22 @@ def test_static_tokens_match_design():
     root = Path(__file__).parents[1]
     static = root / "src/lagman/web/static"
     assert (static / "tokens.css").read_bytes() == (root / "design/tokens.css").read_bytes()
+
+
+def test_time_sync(srv):
+    base, _ = srv
+    code, out, _ = req(base, "POST", "/api/time", {"epoch_ms": 1_793_745_000_000,
+                                                   "tz_offset_min": 0})
+    assert code == 200 and out["source"] == "browser"
+    assert req(base, "POST", "/api/time", {"epoch_ms": "now"})[0] == 400
+    assert req(base, "POST", "/api/time", {"epoch_ms": 1, "tz_offset_min": 0})[0] == 400
+    code, out, _ = req(base, "DELETE", "/api/time")
+    assert code == 200 and out["source"] == "system"
+
+
+def test_failover_route(netsrv):
+    base, _ = netsrv
+    code, out, _ = req(base, "PUT", "/api/network/failover", {"enabled": True, "after_s": 30})
+    assert code == 400 and "hotspot" in out["error"]
+    code, out, _ = req(base, "PUT", "/api/network/failover", {"enabled": False, "after_s": 60})
+    assert code == 200 and out["failover"]["after_s"] == 60

@@ -333,3 +333,115 @@ def test_network_slate_without_network_control_shows_the_main_address():
     eng = FakeEngine()
     NetworkSlate(eng, NetworkControl(None), 8080, address=lambda: "10.1.2.3").poll_once()
     assert eng.sent[0][1]["lines"][0] == "ADDRESS   http://10.1.2.3:8080/"
+
+
+# ---- hotspot failover -------------------------------------------------------------------
+
+
+def _offline(control):
+    devices = control.backend.state["devices"]
+    devices["ethernet"].update(state="unavailable", addresses=[])
+    devices["wifi"].update(state="disconnected", addresses=[], ssid="", mode=None)
+
+
+def _hotspot_saved(control):
+    control.backend.state["profiles"]["hotspot"] = {"ssid": "lag-man", "band": "2.4",
+                                                    "address": "192.168.4.1/24"}
+
+
+class FakeWait:
+    """Stands in for Event.wait: moves the clock on instead of sleeping."""
+
+    def __init__(self, now, on_wait=None):
+        self.now, self.on_wait, self.calls = now, on_wait, 0
+
+    def __call__(self, seconds):
+        self.now[0] += seconds
+        self.calls += 1
+        if self.on_wait:
+            self.on_wait(self.calls)
+        return False
+
+
+def failover_ctl(tmp_path, lines=None):
+    now = [0.0]
+    control = NetworkControl(SimulatedNetwork(), schedule=FakeTimers(), clock=lambda: now[0],
+                             log=(lines.append if lines is not None else lambda m: None),
+                             settings_path=tmp_path / "network.json")
+    return control, now
+
+
+def test_connected_needs_an_address_off_the_hotspot():
+    info = SimulatedNetwork().info()
+    assert net.connected(info)
+    info["devices"]["ethernet"]["addresses"] = ["169.254.3.4/16"]  # link-local: no DHCP
+    info["devices"]["wifi"].update(mode="hotspot", addresses=["192.168.4.1/24"])
+    assert not net.connected(info)
+
+
+def test_failover_starts_the_hotspot_when_nothing_connects(tmp_path):
+    lines = []
+    control, now = failover_ctl(tmp_path, lines)
+    _hotspot_saved(control)
+    control.set_failover({"enabled": True, "after_s": 30})
+    _offline(control)
+    wait = FakeWait(now)
+    control.check_failover(wait)
+    assert now[0] >= 30 and wait.calls < 30
+    wifi = control.backend.state["devices"]["wifi"]
+    assert wifi["mode"] == "hotspot" and wifi["ssid"] == "lag-man"
+    assert "lag-man" in control.info()["failover"]["status"]
+    assert any("hotspot" in line for line in lines)
+    # Failover is for this start only: the Wi-Fi network is still the one used at boot.
+    assert control.backend.state["profiles"]["hotspot"]["ssid"] == "lag-man"
+
+
+def test_failover_waits_for_a_network_that_comes_up(tmp_path):
+    control, now = failover_ctl(tmp_path)
+    _hotspot_saved(control)
+    control.set_failover({"enabled": True, "after_s": 30})
+    _offline(control)
+
+    def comes_up(calls):
+        if calls == 3:
+            control.backend.state["devices"]["wifi"].update(
+                mode="client", ssid="Studio", addresses=["192.168.1.51/24"])
+
+    control.check_failover(FakeWait(now, comes_up))
+    assert control.backend.state["devices"]["wifi"]["mode"] == "client"
+    assert now[0] < 30
+
+
+def test_failover_off_does_nothing(tmp_path):
+    control, now = failover_ctl(tmp_path)
+    _hotspot_saved(control)
+    _offline(control)
+    wait = FakeWait(now)
+    control.check_failover(wait)
+    assert wait.calls == 0 and control.backend.state["devices"]["wifi"]["mode"] is None
+
+
+def test_failover_needs_a_saved_hotspot(tmp_path):
+    control, _ = failover_ctl(tmp_path)
+    with pytest.raises(ValueError, match="hotspot"):
+        control.set_failover({"enabled": True, "after_s": 30})
+    _hotspot_saved(control)
+    with pytest.raises(ValueError, match="10"):
+        control.set_failover({"enabled": True, "after_s": 2})
+    with pytest.raises(ValueError):
+        control.set_failover({"enabled": "yes", "after_s": 30})
+
+
+def test_failover_setting_is_saved(tmp_path):
+    control, _ = failover_ctl(tmp_path)
+    _hotspot_saved(control)
+    control.set_failover({"enabled": True, "after_s": 45})
+    again, _ = failover_ctl(tmp_path)
+    assert again.info()["failover"] | {"status": None} == {"enabled": True, "after_s": 45,
+                                                          "status": None}
+
+
+def test_backend_starts_the_saved_hotspot():
+    fake = FakeNmcli()
+    NMBackend(fake, has_dnsmasq=lambda: True).start_hotspot()
+    assert fake.calls[-1] == ["-w", "30", "connection", "up", net.HOTSPOT]

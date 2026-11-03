@@ -10,6 +10,7 @@ loop, not in it: the network is not generator state, so it does not go through
 from __future__ import annotations
 
 import copy
+import json
 import math
 import os
 import shutil
@@ -20,6 +21,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ..core import network as net
@@ -204,6 +206,13 @@ class NMBackend:
             return  # no cable: the profile is used when one is plugged in
         self._nm(["-w", "30", "connection", "up", name])
 
+    def start_hotspot(self) -> None:
+        """Bring up the saved hotspot for now, leaving which Wi-Fi profile starts at boot."""
+        if not self._has_dnsmasq():
+            raise NetworkError("the hotspot needs dnsmasq to give out addresses; install "
+                               "it with 'sudo apt install dnsmasq-base'")
+        self._nm(["-w", "30", "connection", "up", net.HOTSPOT])
+
     def restore(self, snap: Snapshot) -> None:
         names = {r[0] for r in self._connections()}
         for name, fields in snap.profiles.items():
@@ -277,6 +286,14 @@ class SimulatedNetwork:
             devices["wifi"].update(connection=net.HOTSPOT, ssid=settings.ssid, mode="hotspot",
                                    addresses=[settings.address], gateway="", dns=[])
 
+    def start_hotspot(self) -> None:
+        h = self.state["profiles"]["hotspot"]
+        if h is None:
+            raise NetworkError("no hotspot is saved")
+        self.state["devices"]["wifi"].update(connection=net.HOTSPOT, ssid=h["ssid"],
+                                             mode="hotspot", addresses=[h["address"]],
+                                             gateway="", dns=[])
+
     def restore(self, snap: Snapshot) -> None:
         self.state = copy.deepcopy(snap.profiles["state"])
 
@@ -298,7 +315,7 @@ class NetworkControl:
     def __init__(self, backend=None, note: str = "", confirm_s: float = 120.0,
                  delay_s: float = 1.0, schedule: Callable = _timer,
                  clock: Callable[[], float] = time.monotonic,
-                 log: Callable[[str], None] = _log):
+                 log: Callable[[str], None] = _log, settings_path: Path | None = None):
         self.backend = backend
         self._log = log
         self.note = note
@@ -309,6 +326,17 @@ class NetworkControl:
         self._lock = threading.Lock()
         self._pending: dict[str, Any] | None = None
         self._last_error: str | None = None
+        # Failover: start the saved hotspot when nothing connects at start. Saved here, not
+        # in NetworkManager, since it is the generator that waits and decides.
+        self._settings_path = settings_path
+        self._failover = {"enabled": False, "after_s": 30}
+        self._failover_status: str | None = None
+        if settings_path is not None:
+            try:
+                saved = json.loads(settings_path.read_text()).get("failover", {})
+                self._failover = net.failover_from_dict(saved)
+            except (OSError, ValueError, AttributeError):
+                pass
 
     def _need_backend(self):
         if self.backend is None:
@@ -326,6 +354,7 @@ class NetworkControl:
                 out["error"] = str(e)
         with self._lock:
             out["last_error"] = self._last_error
+            out["failover"] = {**self._failover, "status": self._failover_status}
             p = self._pending
             out["pending"] = None if p is None else {
                 "kind": p["kind"], "label": KINDS[p["kind"]], "state": p["state"],
@@ -335,6 +364,64 @@ class NetworkControl:
 
     def scan(self) -> list[dict[str, Any]]:
         return self._need_backend().scan()
+
+    # ---- failover ---------------------------------------------------------------------
+
+    def set_failover(self, data: dict[str, Any]) -> dict[str, Any]:
+        settings = net.failover_from_dict(data)
+        backend = self._need_backend()
+        if settings["enabled"] and not (backend.info().get("profiles") or {}).get("hotspot"):
+            raise ValueError("set up the hotspot first: failover starts the saved hotspot")
+        with self._lock:
+            self._failover = settings
+        if self._settings_path is not None:
+            self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+            self._settings_path.write_text(json.dumps({"failover": settings}))
+        return self.info()
+
+    def check_failover(self, wait: Callable[[float], bool], poll_s: float = 2.0) -> None:
+        """At start: wait up to the set time for a network, then start the hotspot.
+        ``wait`` sleeps and returns true to give up (the generator is stopping)."""
+        with self._lock:
+            settings = dict(self._failover)
+        if not settings["enabled"] or self.backend is None:
+            return
+        start = self._clock()
+        while True:
+            try:
+                info = self.backend.info()
+            except NetworkError:
+                info = {}
+            if net.connected(info):
+                return
+            wifi = (info.get("devices") or {}).get("wifi") or {}
+            if wifi.get("mode") == "hotspot":
+                return  # already the hotspot (chosen as the boot network)
+            if self._clock() - start >= settings["after_s"]:
+                break
+            if wait(poll_s):
+                return
+        with self._lock:
+            if self._pending is not None:
+                return  # someone is changing the network by hand
+        hotspot = (info.get("profiles") or {}).get("hotspot") or {}
+        when = time.strftime("%H:%M")
+        try:
+            self.backend.start_hotspot()
+            status = (f"No network within {settings['after_s']} s of starting, so the hotspot "
+                      f"{hotspot.get('ssid', '')} was started at {when}.")
+        except NetworkError as e:
+            status = f"No network within {settings['after_s']} s; the hotspot failed: {e}."
+        self._log(status)
+        with self._lock:
+            self._failover_status = status
+
+    def start_failover(self) -> threading.Event:
+        """Run ``check_failover`` on its own thread. Set the returned event to stop it."""
+        stop = threading.Event()
+        threading.Thread(target=self.check_failover, args=(stop.wait,),
+                         name="lagman-failover", daemon=True).start()
+        return stop
 
     def apply(self, kind: str, data: dict[str, Any]) -> dict[str, Any]:
         settings = parse(kind, data)

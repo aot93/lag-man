@@ -11,6 +11,8 @@ API (all JSON):
     POST   /api/start | /api/stop | /api/reset | /api/warnings/ack
     POST   /api/start-value               {"value": "HH:MM:SS:FF"}
     GET    /api/preview                   current frame as draw operations
+    POST   /api/time                      time of day from the browser: {epoch_ms, tz_offset_min}
+    DELETE /api/time                      time of day from this computer's clock again
     GET    /api/display                   display modes the generator can count at
     PUT    /api/display                   {"mode": "1920x1080@50"}; only while idle
     GET    /api/presets                   preset names
@@ -23,6 +25,7 @@ API (all JSON):
     GET    /api/network                   ports, saved settings, a change awaiting confirmation
     GET    /api/network/scan              Wi-Fi networks in range
     PUT    /api/network/<kind>            wired | client | hotspot; applied a moment later
+    PUT    /api/network/failover          {enabled, after_s}: hotspot if nothing connects at start
     POST   /api/network/confirm           keep the last change
     POST   /api/network/revert            put the previous settings back now
 """
@@ -35,6 +38,7 @@ import json
 import mimetypes
 import re
 import threading
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -119,6 +123,10 @@ class ControlServer:
                     raise ApiError(HTTPStatus.BAD_REQUEST, "value must be HH:MM:SS:FF")
                 self._submit("set_start_value", value=value)
                 return eng.status(), {}
+            case "POST", ["time"]:
+                return self._submit("sync_time", time=_browser_time(_obj(body))), {}
+            case "DELETE", ["time"]:
+                return self._submit("clear_time_sync"), {}
             case "GET", ["preview"]:
                 return eng.preview(), {}
             case "GET", ["display"]:
@@ -153,6 +161,8 @@ class ControlServer:
                 return self.network.info(), {}
             case "GET", ["network", "scan"]:
                 return {"networks": self._net(self.network.scan)}, {}
+            case "PUT", ["network", "failover"]:
+                return self._net(lambda: self.network.set_failover(_obj(body))), {}
             case "PUT", ["network", "wired" | "client" | "hotspot" as kind]:
                 return self._net(lambda: self.network.apply(kind, _obj(body))), {}
             case "POST", ["network", "confirm"]:
@@ -220,6 +230,22 @@ class ControlServer:
 class _Raw:
     def __init__(self, data: bytes, content_type: str, headers: dict[str, str]):
         self.data, self.content_type, self.headers = data, content_type, headers
+
+
+_EPOCH = datetime(1970, 1, 1)
+_EARLIEST_MS = 1_577_836_800_000  # 2020-01-01: anything earlier is a browser with no clock
+
+
+def _browser_time(data: dict[str, Any]) -> datetime:
+    """The browser's local wall time, naive, from its epoch time and UTC offset, so the
+    generator shows the time the person's computer shows."""
+    ms, tz = data.get("epoch_ms"), data.get("tz_offset_min", 0)
+    if (isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms < _EARLIEST_MS
+            or isinstance(tz, bool) or not isinstance(tz, int) or abs(tz) > 14 * 60):
+        raise ApiError(HTTPStatus.BAD_REQUEST,
+                       "send epoch_ms (Date.now()) and tz_offset_min (getTimezoneOffset())")
+    # getTimezoneOffset is UTC minus local, in minutes.
+    return _EPOCH + timedelta(milliseconds=ms, minutes=-tz)
 
 
 def _obj(body: Any) -> dict[str, Any]:

@@ -83,7 +83,8 @@ The generator can also show the slate on its own, for labelling any recording wi
 running a latency test.
 
 - A large time-of-day clock (HH:MM:SS) from the system clock, for people to read. It is not
-  the test count and is never used for timing.
+  the test count and is never used for timing. A browser can set it from its own time (and
+  time zone), for a Pi with no internet and no clock battery; that holds until restart.
 - Optional time code (HH:MM:SS:FF) under it, at the time code rate. It counts displayed
   frames like the test clock and runs continuously from the start value; the time-of-day
   start mode jams it to the clock, and Reset jams it again.
@@ -105,7 +106,7 @@ The generator runs a small web server. Any device on the network opens a page to
 - **Run log:** each run records its start time, settings and slate to a file the analysis extension can read.
 - **API:** every control is also available over a simple HTTP or WebSocket API, so runs can be scripted and the extensions can talk to the generator.
 - **Access:** works on the local network without internet. Basic access protection, such as a shared password, is enough.
-- **Network:** on the Pi, set the wired port (DHCP or static), join a Wi-Fi network (name, password, DHCP or static) or run a hotspot with a fixed address and DHCP for the devices that join. Because a change can cut off the browser that made it, each change waits for the user to confirm it from the new address and reverts after two minutes otherwise. The generator starts at boot as a service.
+- **Network:** on the Pi, set the wired port (DHCP or static), join a Wi-Fi network (name, password, DHCP or static) or run a hotspot with a fixed address and DHCP for the devices that join. Because a change can cut off the browser that made it, each change waits for the user to confirm it from the new address and reverts after two minutes otherwise. Optionally, the hotspot starts on its own when no network connects within a set time of starting. The generator starts at boot as a service.
 
 ## Extension 1: photodiode testing
 

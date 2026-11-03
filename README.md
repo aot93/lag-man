@@ -75,10 +75,13 @@ clock, time code under it, and the slate fields below, for labelling recordings 
 test. Start it that way with `--screen slate` (on the Pi, in `LAGMAN_ARGS`).
 
 - **Time of day** comes from the generator's clock, and changes on the frame where the
-  second changes. The Pi sets its clock from a time server once it has internet. With no
-  internet (hotspot mode) it needs the Pi 5's RTC battery, or the clock is wrong after a
-  boot. If the clock is set after the slate starts, press Reset clock to jam the time code
-  again.
+  second changes. The Pi sets its clock from a time server once it has internet; with none
+  (hotspot mode) and no RTC battery, it is wrong after a boot. The Screen card says how far
+  the generator's time is from your device's. **Set from this device** takes the browser's
+  time (and time zone) instead, allowing for the network delay, and keeps it until the
+  generator restarts, even if the Pi's clock is set later. **Use the generator's clock**
+  goes back. With a time-of-day start, the time code jams to the new time unless a run is
+  in progress (a run logs the change instead). Run names and log times use the same time.
 - **Time code** runs at the time code rate (25 or 50fps, or 30 or 60fps for the 60Hz set),
   counting displayed frames like the test clock, from the start value. Choose **Time of
   day** as the start to jam it to the clock; Reset clock jams it again. Over a long day it
@@ -244,7 +247,12 @@ or written to the run log.
 A change is applied a moment after you press Apply, and may cut off the page you pressed it
 from. Reconnect at the new address (the hostname, `http://<hostname>.local:8080/`, often
 works too) and press Keep within two minutes; otherwise the previous settings come back.
-The Wi-Fi mode chosen last is the one used at boot. Rebooting during the two minutes keeps
+The Wi-Fi mode chosen last is the one used at boot.
+
+**Hotspot failover:** with this on, if neither port is on a network a set time after the
+generator starts (30 seconds by default), it starts the saved hotspot, so you can still
+reach the control page. Save a hotspot first. It lasts until the next start, which tries the
+Wi-Fi network again; the setting is kept in `runs/network.json`. Rebooting during the two minutes keeps
 the new settings, so if you lose the Pi, reach it over the other port, or log in at its
 keyboard (Q quits the generator) and run `nmtui`.
 

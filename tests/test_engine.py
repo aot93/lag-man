@@ -348,3 +348,29 @@ def test_slate_screen_is_remembered(tmp_path):
     assert eng2.cfg.screen == "slate" and eng2.status()["count"] >= 2
     eng3, _ = make(tmp_path, screen="test")  # --screen wins over the saved one
     assert eng3.cfg.screen == "test"
+
+
+def test_time_of_day_from_the_browser(tmp_path):
+    eng, loop = make(tmp_path)  # system clock says 12:00:00
+    cfg = eng.cfg.to_dict() | {"screen": "slate", "start_mode": "time_of_day"}
+    call(eng, loop, "set_config", config=cfg)
+    out = call(eng, loop, "sync_time", time=datetime(2026, 10, 22, 14, 30, 0))
+    assert out["source"] == "browser" and round(out["offset_s"]) == 9000
+    loop.frames(2)
+    assert "14:30:00" in _texts(eng)
+    assert eng.status()["timecode"].startswith("14:30:00:")  # the time code jams to it
+    assert eng.status()["time_of_day"]["source"] == "browser"
+    call(eng, loop, "clear_time_sync")
+    loop.frames(1)
+    assert "12:00:00" in _texts(eng)
+
+
+def test_browser_time_does_not_reset_a_running_test(tmp_path):
+    eng, loop = make(tmp_path)
+    call(eng, loop, "start")
+    loop.frames(5)
+    before = eng.status()["count"]
+    call(eng, loop, "sync_time", time=datetime(2026, 10, 22, 14, 30, 0))
+    assert eng.status()["count"] >= before
+    records = read_run_log(next((tmp_path / "runs").glob("*.jsonl")))
+    assert any(r["event"] == "time_sync" for r in records)
