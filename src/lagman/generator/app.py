@@ -1,8 +1,8 @@
 """Full-screen generator: renders the clock locked to the display refresh and serves the
 web control UI.
 
-Keys: Space start/stop a run, R reset the clock (on the slate screen: jam the time code
-again), Esc or Q quit.
+Keys: Space start/stop a run (on the slate screen: the time code), R reset the clock (on the
+slate screen: jam the time code again), Esc or Q quit.
 """
 
 from __future__ import annotations
@@ -131,9 +131,15 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
         display=None) -> int:
     """The frame loop. ``renderer`` None means headless: frames are paced by a timer."""
     width, height = size
+    ltc = None
+    if renderer is not None:
+        # Only with a real display: LTC follows the measured present times.
+        from .ltc_audio import LtcOutput
+
+        ltc = LtcOutput()
     engine = Engine(cfg, width, height, args.log_dir, simulated=renderer is None,
                     display=display, mode_request=args.mode,
-                    screen_request=screen_request(args, cfg))
+                    screen_request=screen_request(args, cfg), ltc=ltc)
     for note in engine.notes:
         print(f"warning: {note}", file=sys.stderr)
     for warning in engine.layout.warnings:
@@ -215,6 +221,8 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
             net_slate.stop()
             server.stop()
         engine.close()
+        if ltc is not None:
+            ltc.close()
         mon = engine.monitor
         print(f"{mon.frames} frames, {mon.repeats} repeated refreshes, "
               f"{mon.early} early presents; logs in {args.log_dir}", file=sys.stderr)

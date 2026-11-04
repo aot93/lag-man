@@ -64,7 +64,7 @@
             <label><input type="checkbox" data-path="slate_screen.timecode"> Time code</label>
             <label><input type="checkbox" data-path="slate_screen.network"> Control page address</label>
           </div>
-          <p class="hint">A large time-of-day clock from the Pi's clock, with time code under it and the slate fields below. The time code runs at the time code rate from the start value; choose Time of day to jam it to the clock, and Reset clock to jam it again. The slate fields always show here: untick a field to hide it. There are no runs or run logs on this screen.</p>
+          <p class="hint">A large time-of-day clock from the Pi's clock, with time code under it and the slate fields below. The time code runs at the time code rate from the start value: Start and Stop below run and hold it, and Reset clock goes back to the start value (with Time of day, jams it to the clock again). The slate fields always show here: untick a field to hide it. There are no runs or run logs on this screen.</p>
         </div>
         <p class="hint" id="screen-test-hint">The clock and code strip for the latency test.</p>
         <div class="sub">Time of day</div>
@@ -102,6 +102,23 @@
             <span class="text-edit"><input id="start-value" class="mono" placeholder="00:00:00:00" spellcheck="false"><button class="btn small" id="set-start" type="button">Set</button></span>
           </label>
         </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section">LTC output</h2>
+        <div class="checks"><label><input type="checkbox" data-path="ltc.enabled"> Send LTC</label></div>
+        <div class="form mt-s">
+          <label>Audio output
+            <span class="text-edit"><select id="ltc-device" data-path="ltc.device"><option value="">Default</option></select><button class="btn small" id="ltc-refresh" type="button">Refresh</button></span>
+          </label>
+          <label>Channel
+            <select data-path="ltc.channel"><option value="both">Both</option><option value="left">Left</option><option value="right">Right</option></select>
+          </label>
+          <label>Level <output data-for="ltc.level_db"></output><input type="range" min="-40" max="0" step="1" data-path="ltc.level_db"></label>
+          <label>Offset (ms)<input type="number" min="-500" max="500" step="1" data-path="ltc.offset_ms"></label>
+        </div>
+        <p class="hint" id="ltc-status"></p>
+        <p class="hint">SMPTE LTC that follows the time code on screen, on the slate screen or during a run, and is silent while the clock is stopped. 50 and 60fps time code (and fast mode) goes out at 25 or 30fps. A positive offset sends it earlier, to make up for the audio output's delay. On the Pi 5, use HDMI audio (through the display) or a USB audio interface.</p>
       </section>
 
       <section class="card">

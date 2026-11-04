@@ -15,6 +15,7 @@ PATCH_MODES = ("off", "white", "black")
 # What the screen shows: the latency test (clock and code strip), or a slate on its own with
 # a large time-of-day clock and, optionally, time code.
 SCREENS = ("test", "slate")
+LTC_CHANNELS = ("both", "left", "right")
 SLATE_FIELDS = (
     "test_name", "camera_name", "camera_fps", "run_number", "date_time",
     "operator", "location", "notes",
@@ -74,6 +75,19 @@ class SlateScreenConfig:
 
 
 @dataclass
+class LtcConfig:
+    """LTC audio out (SMPTE 12M), following the time code on screen."""
+
+    enabled: bool = False
+    device: str = ""  # an audio output's name; blank for the default
+    level_db: float = -18.0
+    channel: str = "both"
+    # Moves the LTC earlier (positive) or later against the picture, to allow for the audio
+    # output's delay.
+    offset_ms: float = 0.0
+
+
+@dataclass
 class GeneratorConfig:
     screen: str = "test"
     rate_set: str = "50"
@@ -84,6 +98,7 @@ class GeneratorConfig:
     slate: SlateConfig = field(default_factory=SlateConfig)
     patch: PatchConfig = field(default_factory=PatchConfig)
     slate_screen: SlateScreenConfig = field(default_factory=SlateScreenConfig)
+    ltc: LtcConfig = field(default_factory=LtcConfig)
     # The refresh the display runs at; 0 is the rate set's standard rate. Set by the
     # generator from the display mode, never saved in presets.
     display_hz: int = field(default=0, metadata={"runtime": True})
@@ -125,6 +140,12 @@ class GeneratorConfig:
         ss = self.slate_screen
         _between("slate_screen.clock_size", ss.clock_size, 0.04, 0.5)
         _between("slate_screen.tc_size", ss.tc_size, 0.02, 0.3)
+        lt = self.ltc
+        _between("ltc.level_db", lt.level_db, -40, 0)
+        _one_of("ltc.channel", lt.channel, LTC_CHANNELS)
+        _between("ltc.offset_ms", lt.offset_ms, -500, 500)
+        if len(lt.device) > 200:
+            raise ValueError("ltc.device is too long")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -137,7 +158,7 @@ class GeneratorConfig:
     def from_dict(cls, data: dict[str, Any], display_hz: int = 0) -> GeneratorConfig:
         """Build from JSON, filling missing keys with defaults and rejecting unknown ones."""
         base = cls()
-        top = _pick(cls, data, nested=("clock", "slate", "patch", "slate_screen"))
+        top = _pick(cls, data, nested=("clock", "slate", "patch", "slate_screen", "ltc"))
         cfg = replace(
             base, **top, display_hz=display_hz,
             clock=replace(base.clock, **_pick(ClockConfig, data.get("clock", {}))),
@@ -145,6 +166,7 @@ class GeneratorConfig:
             slate=_slate_from_dict(data.get("slate", {})),
             slate_screen=replace(base.slate_screen,
                                  **_pick(SlateScreenConfig, data.get("slate_screen", {}))),
+            ltc=replace(base.ltc, **_pick(LtcConfig, data.get("ltc", {}))),
         )
         cfg.validate()
         return cfg

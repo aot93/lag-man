@@ -7,8 +7,12 @@ and ``preview`` read snapshots that the render loop publishes once per frame.
 The count runs at the display's refresh: the rate set's standard rate, or its fallback when
 the display mode is 50 or 60Hz (SPEC.md, "Display mode").
 
-On the slate screen (``screen`` "slate") there are no runs: the clock counts continuously as
-time code, under a time-of-day clock read from the system clock for people to read.
+On the slate screen (``screen`` "slate") there are no runs: the clock is time code, which
+Start and Stop run and hold, under a time-of-day clock read from the system clock for people
+to read.
+
+An LTC output, when given, is told each present which count went on screen and when, so the
+time code it sends follows the picture.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from ..core.clock import Clock
 from ..core.config import SCREENS, GeneratorConfig
 from ..core.display import DisplayControl, DisplayMode, usable_modes
 from ..core.framemon import FrameEvent, FrameMonitor
+from ..core.ltc import ltc_fps
 from ..core.rates import get_rate_set
 from ..core.runlog import RunLog, new_run_id
 from ..core.slate import slate_lines
@@ -60,7 +65,7 @@ class Engine:
                  now: Callable[[], datetime] = datetime.now,
                  monotonic: Callable[[], float] = time.monotonic, simulated: bool = False,
                  display: DisplayControl | None = None, mode_request: str | None = None,
-                 screen_request: str | None = None):
+                 screen_request: str | None = None, ltc=None):
         self.width, self.height = width, height
         self.simulated = simulated
         self.log_dir = log_dir
@@ -104,8 +109,10 @@ class Engine:
         self._net_shown = True
         self._config_rev = 0
         self._time_of_day = self._now().strftime("%H:%M:%S")
+        self.ltc = ltc
         self._relayout()
         self._restore_mode(mode_request)
+        self._configure_ltc()
         self._publish_display()
         self._publish()
 
@@ -167,6 +174,8 @@ class Engine:
 
     def presented(self, t_ns: int) -> None:
         """Call right after the vsynced present returns."""
+        if self.ltc is not None:
+            self.ltc.anchor(self._shown, t_ns / 1e9, self.clock.running, self.cfg.refresh_hz)
         self.clock.frame_displayed()
         for ev in self.monitor.observe(self._frame, t_ns):
             self._record(ev)
@@ -207,11 +216,14 @@ class Engine:
         cmd.done.set()
 
     def _cmd_start(self) -> None:
+        if self._slate_screen():
+            # No runs on the slate screen: Start runs the time code.
+            if self.clock.running:
+                raise CommandError("the time code is already running")
+            self.clock.start()
+            return
         if self.state != IDLE:
             raise CommandError("a run is already in progress")
-        if self._slate_screen():
-            raise CommandError("the screen shows the slate only; switch to the latency test "
-                               "to start a run")
         self.run_id = new_run_id(self._now())
         self.run_log = RunLog(self.log_dir, self.run_id, now=self._now)
         self._net_shown = False
@@ -234,6 +246,11 @@ class Engine:
             self.clock.start()
 
     def _cmd_stop(self) -> None:
+        if self._slate_screen():
+            if not self.clock.running:
+                raise CommandError("the time code is already stopped")
+            self.clock.stop()
+            return
         if self.state == IDLE:
             raise CommandError("no run in progress")
         self._stop()
@@ -273,6 +290,7 @@ class Engine:
                 self.clock.stop()
             self._save_state()
         self._config_rev += 1
+        self._configure_ltc()
         self._log("config", config=cfg.to_dict())
         self._refresh_slate(force=True)
         self._relayout()
@@ -367,6 +385,7 @@ class Engine:
         self.monitor = FrameMonitor(self.cfg.refresh_hz)
         self._mismatch = False
         self._config_rev += 1
+        self._configure_ltc()
         self._refresh_slate(force=True)
         self._relayout()
         self._publish_display()
@@ -426,6 +445,10 @@ class Engine:
         self._save_state()
         self._refresh_slate(force=True)
 
+    def _configure_ltc(self) -> None:
+        if self.ltc is not None:
+            self.ltc.configure(self.cfg.ltc, ltc_fps(self.cfg.tc_rate))
+
     def _slate_screen(self) -> bool:
         return self.cfg.screen == "slate"
 
@@ -476,6 +499,10 @@ class Engine:
             "state": self.state,
             "screen": self.cfg.screen,
             "time_of_day": self.time_info(),
+            "tc_running": self.clock.running,
+            "ltc": (self.ltc.status() if self.ltc is not None else
+                    {"state": "unavailable", "detail": "LTC needs the generator's display "
+                     "(not headless or snapshot runs)."}),
             "count": self._shown,
             "timecode": tc.hmsf() + tc.ms(),
             "rate_set": self.cfg.rate_set,

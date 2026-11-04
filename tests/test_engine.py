@@ -24,13 +24,13 @@ class Loop:
             self.engine.presented(self.t)
 
 
-def make(tmp_path, cfg=None, display=None, mode=None, screen=None):
+def make(tmp_path, cfg=None, display=None, mode=None, screen=None, ltc=None):
     from lagman.core.config import GeneratorConfig
     holder = {}
     eng = Engine(cfg or GeneratorConfig(), 1920, 1080, tmp_path / "runs",
                  now=lambda: datetime(2026, 10, 22, 12, 0, 0),
                  monotonic=lambda: holder["loop"].mono, display=display, mode_request=mode,
-                 screen_request=screen)
+                 screen_request=screen, ltc=ltc)
     holder["loop"] = Loop(eng)
     return eng, holder["loop"]
 
@@ -374,3 +374,55 @@ def test_browser_time_does_not_reset_a_running_test(tmp_path):
     assert eng.status()["count"] >= before
     records = read_run_log(next((tmp_path / "runs").glob("*.jsonl")))
     assert any(r["event"] == "time_sync" for r in records)
+
+
+def test_slate_screen_start_and_stop_the_time_code(tmp_path):
+    eng, loop = make(tmp_path)
+    _slate_screen(eng, loop)
+    assert eng.status()["tc_running"]
+    call(eng, loop, "stop")
+    held = eng.status()["count"]
+    loop.frames(5)
+    assert eng.status()["count"] == held and not eng.status()["tc_running"]
+    with pytest.raises(CommandError):
+        call(eng, loop, "stop")
+    call(eng, loop, "start")
+    loop.frames(5)
+    assert eng.status()["count"] > held and eng.state == IDLE  # no run, no run log
+    with pytest.raises(CommandError):
+        call(eng, loop, "start")
+    call(eng, loop, "reset")
+    assert eng.status()["tc_running"]  # reset goes back to the start value, still running
+    assert not list((tmp_path / "runs").glob("*.jsonl"))
+
+
+class FakeLtc:
+    def __init__(self):
+        self.configured, self.anchors = [], []
+
+    def configure(self, cfg, fps):
+        self.configured.append((cfg.enabled, fps))
+
+    def anchor(self, count, t_s, running, refresh_hz):
+        self.anchors.append((count, t_s, running, refresh_hz))
+
+    def status(self):
+        return {"state": "fake"}
+
+
+def test_ltc_follows_the_displayed_count(tmp_path):
+    ltc = FakeLtc()
+    eng, loop = make(tmp_path, ltc=ltc)
+    assert ltc.configured[-1] == (False, 25)
+    cfg = eng.cfg.to_dict()
+    cfg["ltc"]["enabled"] = True
+    cfg["tc_rate"] = 50
+    call(eng, loop, "set_config", config=cfg)
+    assert ltc.configured[-1] == (True, 25)  # 50fps time code goes out as 25fps LTC
+    call(eng, loop, "start")
+    loop.frames(3)
+    count, t_s, running, hz = ltc.anchors[-1]
+    assert running and hz == 100
+    # The anchor is the count the last presented frame showed, at that present.
+    assert count == eng.status()["count"] and t_s == pytest.approx(loop.t / 1e9)
+    assert eng.status()["ltc"] == {"state": "fake"}

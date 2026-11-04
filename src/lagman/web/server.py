@@ -12,6 +12,7 @@ API (all JSON):
     POST   /api/start-value               {"value": "HH:MM:SS:FF"}
     GET    /api/preview                   current frame as draw operations
     POST   /api/time                      time of day from the browser: {epoch_ms, tz_offset_min}
+    GET    /api/audio                     audio outputs LTC can be sent to
     DELETE /api/time                      time of day from this computer's clock again
     GET    /api/display                   display modes the generator can count at
     PUT    /api/display                   {"mode": "1920x1080@50"}; only while idle
@@ -123,6 +124,10 @@ class ControlServer:
                     raise ApiError(HTTPStatus.BAD_REQUEST, "value must be HH:MM:SS:FF")
                 self._submit("set_start_value", value=value)
                 return eng.status(), {}
+            case "GET", ["audio"]:
+                from ..generator.ltc_audio import list_devices
+
+                return {"devices": list_devices()}, {}
             case "POST", ["time"]:
                 return self._submit("sync_time", time=_browser_time(_obj(body))), {}
             case "DELETE", ["time"]:

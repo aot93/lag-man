@@ -19,6 +19,12 @@ if [ ! -x "$REPO/.venv/bin/lagman-generator" ]; then
     exit 1
 fi
 
+# LTC goes out through aplay.
+if ! command -v aplay >/dev/null 2>&1; then
+    echo "Installing alsa-utils (aplay, for LTC)"
+    sudo apt-get install -y alsa-utils
+fi
+
 echo "Installing $UNIT (user $RUN_USER, repo $REPO)"
 sed -e "s|@USER@|$RUN_USER|g" -e "s|@REPO@|$REPO|g" "$REPO/deploy/lagman-generator.service" \
     | sudo tee "$UNIT" >/dev/null

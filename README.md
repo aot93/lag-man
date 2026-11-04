@@ -28,8 +28,8 @@ uv run lagman-generator --windowed 1280x720 --run             # window, for deve
 uv run lagman-generator --snapshot frame.png --count 123456   # render one frame, no display
 ```
 
-Keys: Space start/stop a run, R reset (on the slate screen, jam the time code again), Esc or
-Q quit. On the Pi, `deploy/install-pi.sh`
+Keys: Space start/stop a run (on the slate screen, the time code), R reset (on the slate
+screen, back to the start value), Esc or Q quit. On the Pi, `deploy/install-pi.sh`
 starts it at boot and lets the web UI change the network (below). Settings can also come from a JSON
 file (`--config`), in the same format as the presets the web UI saves.
 
@@ -83,7 +83,9 @@ test. Start it that way with `--screen slate` (on the Pi, in `LAGMAN_ARGS`).
   goes back. With a time-of-day start, the time code jams to the new time unless a run is
   in progress (a run logs the change instead). Run names and log times use the same time.
 - **Time code** runs at the time code rate (25 or 50fps, or 30 or 60fps for the 60Hz set),
-  counting displayed frames like the test clock, from the start value. Choose **Time of
+  counting displayed frames like the test clock, from the start value. It runs as soon as
+  the slate screen is chosen; the Run card's **Start time code** and **Stop time code** run
+  and hold it (record run), and Reset clock goes back to the start value. Choose **Time of
   day** as the start to jam it to the clock; Reset clock jams it again. Over a long day it
   can drift from the clock by the display's crystal error (a few seconds a day at most);
   jam it again before a take that has to match. Turn it off for the clock and slate alone.
@@ -94,6 +96,29 @@ test. Start it that way with `--screen slate` (on the Pi, in `LAGMAN_ARGS`).
   next start; `--screen`, or a `--config` file that sets `screen`, overrides it. The slate
   fields are not remembered between starts: save them as a preset and start with
   `--config presets/<name>.json` to bring them back at boot.
+
+## LTC output
+
+The LTC output card sends SMPTE linear time code as audio, following the time code on
+screen (on the slate screen, or the test clock during a run), so cameras and recorders can
+jam to it. It is silent while the clock is stopped.
+
+- **Rate:** 25 or 30fps. 50 and 60fps time code, and fast mode, go out at half the rate,
+  as LTC tops out at 30fps.
+- **Output:** any ALSA output, through `aplay` (`deploy/install-pi.sh` installs
+  `alsa-utils`). The Pi 5 has no headphone socket: use HDMI audio (it comes out of the
+  display's audio output) or a USB audio interface. Choose the channel (left, right or
+  both) and the level (-18 dBFS by default).
+- **Timing:** the generator writes the audio a few tens of milliseconds ahead, working out
+  where the time code on screen will be when each sample is heard, and nudges the audio a
+  sample at a time to stay within about a millisecond of that. It jumps only if it is more
+  than half a frame out (after an audio underrun, say). The output's own delay is
+  estimated; **Offset** trims what is left (positive sends LTC earlier). To set it, film the
+  screen and record the LTC on the same camera, and compare.
+- Not available headless (timing there is simulated).
+
+Still to check on the Pi 5: HDMI and USB audio through `aplay`, the output delay, and that
+the audio never runs dry while the generator is busy.
 
 ## How the timing works
 

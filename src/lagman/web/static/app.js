@@ -65,8 +65,13 @@ function fmtFraction(v) {
   return `${Math.round(v * 1000) / 10}%`;
 }
 
+function fmtOutput(path, v) {
+  return path === "ltc.level_db" ? `${v} dBFS` : fmtFraction(v);
+}
+
 function syncForm() {
   if (!config) return;
+  addDeviceOption(config.ltc.device);
   for (const el of document.querySelectorAll("[data-path]")) {
     const v = getPath(config, el.dataset.path);
     if (el.classList.contains("seg")) {
@@ -78,7 +83,7 @@ function syncForm() {
     else el.value = v;
   }
   for (const out of document.querySelectorAll("output[data-for]")) {
-    out.textContent = fmtFraction(getPath(config, out.dataset.for));
+    out.textContent = fmtOutput(out.dataset.for, getPath(config, out.dataset.for));
   }
   for (const b of $("rate-set").querySelectorAll("button")) {
     b.classList.toggle("on", b.value === config.rate_set);
@@ -182,7 +187,7 @@ function bindInput(el) {
     const v = readInput(el);
     if (el.type === "number" && !Number.isFinite(v)) return;
     const out = document.querySelector(`output[data-for="${path}"]`);
-    if (out) out.textContent = fmtFraction(v);
+    if (out) out.textContent = fmtOutput(path, v);
     queuePatch(patchFor(path, v), el.type === "text" ? 500 : 150);
   };
   el.addEventListener(el.type === "text" ? "input" : "change", handler);
@@ -208,7 +213,7 @@ function renderStatus() {
     : s.state === "pre_roll" ? `Slate ${s.pre_roll_remaining.toFixed(1)} s` : STATE_LABELS[s.state];
   $("kf-state").textContent = stateLabel;
   $("kf-state").parentElement.className = `kf ${s.state === "running" ? "ok" : ""}`;
-  $("kf-run").textContent = slateOnly ? "Time code running · no runs"
+  $("kf-run").textContent = slateOnly ? `Time code ${s.tc_running ? "running" : "stopped"} · no runs`
     : s.state === "idle" ? `Next run ${s.run_number}` : `Run ${s.run_number} · ${s.run_id}`;
 
   const hz = s.measured_hz;
@@ -235,13 +240,15 @@ function renderStatus() {
   $("layout-alert").hidden = !lw.length;
   $("layout-alert-text").textContent = lw.join(" ");
 
-  $("start").disabled = s.state !== "idle" || slateOnly;
-  $("start").title = slateOnly ? "Switch the screen to Latency test to start a run" : "";
-  $("stop").disabled = s.state === "idle";
+  $("start").textContent = slateOnly ? "Start time code" : "Start";
+  $("stop").textContent = slateOnly ? "Stop time code" : "Stop";
+  $("start").disabled = slateOnly ? s.tc_running : s.state !== "idle";
+  $("stop").disabled = slateOnly ? !s.tc_running : s.state === "idle";
   for (const b of $("rate-set").querySelectorAll("button")) b.disabled = s.state !== "idle";
   for (const b of $("screen").querySelectorAll("button")) b.disabled = s.state !== "idle";
 
   renderTimeOfDay(s.time_of_day);
+  renderLtc(s);
   renderEvents(s.recent_events);
   renderTcRates();
   renderDisplayAlert(s);
@@ -281,6 +288,36 @@ async function syncTime() {
     epoch_ms: Math.round(Date.now() + half), tz_offset_min: new Date().getTimezoneOffset(),
   }));
   if (out) refreshPreview();
+}
+
+function renderLtc(s) {
+  const l = s.ltc;
+  let text = {
+    off: "Off.",
+    starting: "Starting…",
+    playing: `Sending ${l.fps} fps LTC to ${l.device}${s.tc_running ? "." : "; silent while the clock is stopped."}`,
+  }[l.state] || l.detail;
+  if (l.state === "error") text = l.detail;
+  $("ltc-status").textContent = text;
+  $("ltc-status").classList.toggle("bad", l.state === "error" || l.state === "unavailable");
+}
+
+function addDeviceOption(name, description) {
+  const sel = $("ltc-device");
+  if ([...sel.options].some((o) => o.value === name)) return;
+  const o = document.createElement("option");
+  o.value = name;
+  o.textContent = description ? `${name} · ${description}` : name;
+  sel.append(o);
+}
+
+async function loadAudio() {
+  const out = await act(() => api("GET", "audio"));
+  if (!out) return;
+  for (const d of out.devices) {
+    if (d.name !== "default") addDeviceOption(d.name, d.description);
+  }
+  syncForm();
 }
 
 function renderDisplayAlert(s) {
@@ -780,6 +817,7 @@ async function init() {
   $("stop").addEventListener("click", command("stop"));
   $("reset").addEventListener("click", command("reset"));
   $("tod-sync").addEventListener("click", syncTime);
+  $("ltc-refresh").addEventListener("click", loadAudio);
   $("tod-system").addEventListener("click", () => act(() => api("DELETE", "time")));
   $("ack").addEventListener("click", command("warnings/ack"));
   $("set-start").addEventListener("click", async () => {
@@ -805,6 +843,7 @@ async function init() {
   setInterval(refreshPreview, 400);
   loadPresets();
   loadRuns();
+  loadAudio();
   bindNetwork();
   loadNetwork();
 }

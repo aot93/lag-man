@@ -6,8 +6,8 @@ After=systemd-user-sessions.service NetworkManager.service
 
 [Service]
 User=@USER@
-# video and render for the display (KMS), input for the keyboard
-SupplementaryGroups=video render input
+# video and render for the display (KMS), input for the keyboard, audio for LTC
+SupplementaryGroups=video render input audio
 WorkingDirectory=@REPO@
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=PYTHONUNBUFFERED=1

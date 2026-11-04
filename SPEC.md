@@ -86,8 +86,12 @@ running a latency test.
   the test count and is never used for timing. A browser can set it from its own time (and
   time zone), for a Pi with no internet and no clock battery; that holds until restart.
 - Optional time code (HH:MM:SS:FF) under it, at the time code rate. It counts displayed
-  frames like the test clock and runs continuously from the start value; the time-of-day
-  start mode jams it to the clock, and Reset jams it again.
+  frames like the test clock, from the start value, and runs from the moment the screen is
+  chosen; Start and Stop run and hold it, Reset goes back to the start value, and the
+  time-of-day start mode jams it to the clock.
+- Optional LTC (SMPTE 12M) audio out that follows the time code on screen, on this screen
+  or during a test run: 25 or 30fps (faster time code goes out at half rate), on a chosen
+  audio output, channel and level, with an offset for the output's delay.
 - The slate fields below, whatever the slate mode (each field's toggle still hides it). A
   blank run number stays blank, the date shows without the time, and the clock settings
   line is replaced by the time code's caption.
