@@ -299,7 +299,10 @@ function renderLtc(s) {
   }[l.state] || l.detail;
   if (l.state === "error") text = l.detail;
   const dry = l.underruns || 0;
-  if (dry) text += ` The audio output has run dry ${dry} time${dry === 1 ? "" : "s"} (a break in the LTC each time).`;
+  if (l.state === "playing") {
+    text += dry ? ` The audio output has run dry ${dry} time${dry === 1 ? "" : "s"} (a break in the LTC each time).`
+      : " No dropouts.";
+  }
   $("ltc-status").textContent = text;
   $("ltc-status").classList.toggle("bad", l.state === "error" || l.state === "unavailable" || dry > 0);
 }
