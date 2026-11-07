@@ -4,7 +4,7 @@ import pytest
 
 from lagman.core import ltc
 from lagman.core.config import LtcConfig
-from lagman.generator.ltc_audio import CHUNK, LtcOutput, parse_devices
+from lagman.generator.ltc_audio import CHUNK, LtcWriter, parse_devices, underrun
 
 
 class FakeProc:
@@ -47,7 +47,7 @@ def out():
         procs.append(FakeProc(args))
         return procs[-1]
 
-    o = LtcOutput(spawn=spawn, clock=lambda: now[0], threaded=False,
+    o = LtcWriter(spawn=spawn, clock=lambda: now[0], threaded=False,
                   have_aplay=lambda: True)
     return o, procs, now
 
@@ -65,7 +65,7 @@ def test_off_until_enabled(out):
 def test_sends_ltc_on_the_chosen_channel(out):
     o, procs, now = out
     o.configure(LtcConfig(enabled=True, device="hw:1", channel="left", level_db=-12), 25)
-    assert procs[0].args[:3] == ["aplay", "-q", "-D"] and "hw:1" in procs[0].args
+    assert procs[0].args[:2] == ["aplay", "-D"] and "hw:1" in procs[0].args
     o.anchor(400 * 12, now[0], True, 100)  # 00:00:48:00
     for _ in range(int(3 * 1920 / CHUNK) + 2):
         o.pump()
@@ -110,7 +110,7 @@ def test_a_failed_device_is_reported(out):
 
 
 def test_no_aplay():
-    o = LtcOutput(spawn=None, threaded=False, have_aplay=lambda: False)
+    o = LtcWriter(spawn=None, threaded=False, have_aplay=lambda: False)
     o.configure(LtcConfig(enabled=True), 25)
     assert o.status()["state"] == "error" and "alsa-utils" in o.status()["detail"]
 
@@ -126,3 +126,49 @@ def test_parse_devices():
         {"name": "hdmi:CARD=vc4hdmi0,DEV=0", "description": "vc4-hdmi-0, MAI PCM i2s-hifi-0"},
         {"name": "plughw:CARD=Device,DEV=0", "description": "USB Audio Device, USB Audio"},
     ]
+
+
+def test_underruns_are_counted_from_aplay():
+    assert underrun("underrun!!! (at least 12.345 ms long)")
+    assert not underrun("Playing raw data 'stdin' : Signed 16 bit Little Endian, Rate 48000 Hz")
+
+
+def test_worker_process_sends_ltc(tmp_path, monkeypatch):
+    """The real worker process, writing to a stand-in aplay that keeps what it is sent."""
+    import os
+    import sys
+    import time
+
+    from lagman.generator.ltc_audio import LtcProcess
+
+    fake = tmp_path / "aplay"
+    fake.write_text(f"""#!{sys.executable}
+import sys, time
+out = open({str(tmp_path / "out.raw")!r}, "wb")
+start, got = time.perf_counter(), 0
+print("underrun!!! (at least 1.000 ms long)", file=sys.stderr, flush=True)
+while data := sys.stdin.buffer.read(1920):
+    out.write(data); out.flush(); got += len(data) // 4
+    time.sleep(max(0, start + got / 48000 - 0.1 - time.perf_counter()))
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    proc = LtcProcess()
+    try:
+        proc.configure(LtcConfig(enabled=True), 25)
+        t0 = time.perf_counter()
+        n = 0
+        while time.perf_counter() < t0 + 1.5:
+            proc.anchor(n, time.perf_counter(), True, 100)
+            n += 1
+            time.sleep(0.01)
+        st = proc.status()
+        assert st["state"] == "playing", st
+        assert st["fps"] == 25 and st["underruns"] == 1
+    finally:
+        proc.close()
+    data = array.array("h", (tmp_path / "out.raw").read_bytes())
+    assert len(data) > 2 * 48000 // 2  # at least half a second of stereo
+    assert max(data[0::2]) > 1000  # LTC, not silence
+    st = proc.status()
+    assert st["state"] == "off"

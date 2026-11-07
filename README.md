@@ -115,6 +115,9 @@ jam to it. It is silent while the clock is stopped.
   than half a frame out (after an audio underrun, say). The output's own delay is
   estimated; **Offset** trims what is left (positive sends LTC earlier). To set it, film the
   screen and record the LTC on the same camera, and compare.
+- **Dropouts:** the audio is written by a separate worker process, so a busy render loop
+  cannot starve it, with a 100ms output buffer. If the output still runs dry, the card
+  counts each time (from `aplay`'s underrun reports), and the service log has the details.
 - Not available headless (timing there is simulated).
 
 Still to check on the Pi 5: HDMI and USB audio through `aplay`, the output delay, and that

@@ -298,8 +298,10 @@ function renderLtc(s) {
     playing: `Sending ${l.fps} fps LTC to ${l.device}${s.tc_running ? "." : "; silent while the clock is stopped."}`,
   }[l.state] || l.detail;
   if (l.state === "error") text = l.detail;
+  const dry = l.underruns || 0;
+  if (dry) text += ` The audio output has run dry ${dry} time${dry === 1 ? "" : "s"} (a break in the LTC each time).`;
   $("ltc-status").textContent = text;
-  $("ltc-status").classList.toggle("bad", l.state === "error" || l.state === "unavailable");
+  $("ltc-status").classList.toggle("bad", l.state === "error" || l.state === "unavailable" || dry > 0);
 }
 
 function addDeviceOption(name, description) {

@@ -134,9 +134,9 @@ def run(cfg: GeneratorConfig, args: argparse.Namespace, renderer, size: tuple[in
     ltc = None
     if renderer is not None:
         # Only with a real display: LTC follows the measured present times.
-        from .ltc_audio import LtcOutput
+        from .ltc_audio import LtcProcess
 
-        ltc = LtcOutput()
+        ltc = LtcProcess()
     engine = Engine(cfg, width, height, args.log_dir, simulated=renderer is None,
                     display=display, mode_request=args.mode,
                     screen_request=screen_request(args, cfg), ltc=ltc)
