@@ -155,11 +155,14 @@ the whole workflow happens there:
    Without a run log, choose the rate set by hand.
 3. **Mark the regions** on a frame: click near the four corners of each strip. Each region
    is then fitted automatically, using frames from across the recording. The ends snap to
-   the white reference cells, which takes out a few pixels of error; the cell grid bows to
+   the white reference cells, found along the strip even when a corner is clicked a cell or
+   so past the end; the cell grid bows to
    follow perspective (a screen at an angle) and lens distortion; and last the region is
    nudged along and across the strip to read the most frames. A frame only counts as read
    if its count keeps time with the others, so a grid a cell out (which can read cleanly
-   but wrongly) is not chosen. Ticks show where each cell edge is expected. Drag a
+   but wrongly) is not chosen. The rate is measured from the source strip and the wall must
+   keep the same time. A wall that blends counts in every frame can fit with few clean
+   reads; the analysis still reads it. Ticks show where each cell edge is expected. Drag a
    corner, or click it and nudge it with the arrow keys (Shift for bigger steps), and
    **Fit to cells** fits again. Save the regions as a named setup that later recordings
    from the same camera position can reuse.
@@ -186,8 +189,9 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
 - **Timing:** the real capture rate comes from the rate set (100fps or 120fps), not from
   the file, because the S5 writes high-frame-rate footage into a 50p or 60p file. Override
   it with `--capture-fps`, or in the app's recording details. The analysis also measures it
-  from how fast the source strip advances, and warns if it differs. The first S5 test was
-  shot at 150fps. Latency figures do not depend on it; times do.
+  from how fast the source strip advances, and warns if it differs; the check for
+  source breaks uses the measured rate. The first S5 test was shot at 150fps. Latency
+  figures do not depend on it; times do.
 - **Reading the strips:** cells are measured in linear light, so a cell lit for part of an
   exposure reads as in between rather than as white.
 - **Blended frames:** a frame that saw several counts (a shutter as long as a tick, which

@@ -212,10 +212,10 @@ def refine(frames: Sequence[np.ndarray], quad: Quad, reach: float = 0.6,
     strip, and its bow, for the most frames read (``_nudge``): on small, soft cells a pixel
     either way decides whether a frame reads.
 
-    Given the frames' ``indices`` in the video and the clock ``ticks_per_frame``, a frame
-    only counts as read if its count fits the others: a grid a cell out can read cleanly
-    but wrongly, with counts about half or twice the true ones. Returns the quad and the
-    number of frames read.
+    Given the frames' ``indices`` in the video, a frame only counts as read if its count
+    keeps time with the others (at ``ticks_per_frame`` if given, else at the rate that fits
+    the most): a grid a cell out can read cleanly but wrongly, with counts about half or
+    twice the true ones. Returns the quad and the number of frames read.
     """
     def score(q: Quad) -> int:
         return reads(frames, q, indices, ticks_per_frame)
@@ -243,19 +243,50 @@ def refine(frames: Sequence[np.ndarray], quad: Quad, reach: float = 0.6,
 
 def reads(frames: Sequence[np.ndarray], quad: Quad, indices: Sequence[int] | None = None,
           ticks_per_frame: float | None = None, tolerance: float = 6.0) -> int:
-    """How many ``frames`` read cleanly. With their ``indices`` and the clock's
-    ``ticks_per_frame``, only reads whose counts lie on one line at that rate, within
-    ``tolerance`` ticks (the wall's delay wanders a little), count."""
-    counts = [(i, d.count) for i, d in zip(range(len(frames)) if indices is None else indices,
-                                          (read(f, quad) for f in frames), strict=True)
-              if d.status is strip.DecodeStatus.OK]
-    if ticks_per_frame is None or indices is None:
-        return len(counts)
-    offsets = np.array([c - ticks_per_frame * i for i, c in counts])
-    if not len(offsets):
-        return 0
-    return int(max(np.sum(np.abs(offsets - o) <= tolerance + ticks_per_frame)
-                   for o in offsets))
+    """How many ``frames`` read cleanly. Given their ``indices``, only reads whose counts
+    lie on one line, within ``tolerance`` ticks (the wall's delay wanders a little), count:
+    at the clock's ``ticks_per_frame`` if given, else at whatever rate fits the most."""
+    return _timed(_counts(frames, quad, indices), indices is not None, ticks_per_frame,
+                  tolerance)[0]
+
+
+def rate(frames: Sequence[np.ndarray], quad: Quad, indices: Sequence[int],
+         tolerance: float = 6.0) -> float | None:
+    """Ticks per video frame, measured from the reads that keep time with each other.
+
+    A camera can record faster than its file plays (100 fps in a 50p file), so this can
+    differ from the run log's refresh rate over the file's frame rate."""
+    return _timed(_counts(frames, quad, indices), True, None, tolerance)[1]
+
+
+def _counts(frames: Sequence[np.ndarray], quad: Quad, indices: Sequence[int] | None
+            ) -> list[tuple[int, int]]:
+    return [(i, d.count) for i, d in zip(range(len(frames)) if indices is None else indices,
+                                        (read(f, quad) for f in frames), strict=True)
+            if d.status is strip.DecodeStatus.OK and d.count is not None]
+
+
+def _timed(counts: list[tuple[int, int]], timed: bool, ticks_per_frame: float | None,
+           tolerance: float) -> tuple[int, float | None]:
+    """The most reads on one line, and its slope (least squares over them)."""
+    if not timed or len(counts) < 2:
+        return len(counts), ticks_per_frame
+    idx = np.array([i for i, _ in counts], dtype=float)
+    cnt = np.array([c for _, c in counts], dtype=float)
+    slopes = [ticks_per_frame] if ticks_per_frame is not None else sorted({
+        (cnt[b] - cnt[a]) / (idx[b] - idx[a])
+        for a in range(len(counts)) for b in range(a + 1, len(counts))
+        if idx[b] > idx[a] and cnt[b] > cnt[a]})
+    best, inliers = 1, np.zeros(len(counts), bool)
+    for slope in slopes:
+        offsets = cnt - slope * idx
+        for o in offsets:
+            on = np.abs(offsets - o) <= tolerance + slope
+            if on.sum() > best:
+                best, inliers = int(on.sum()), on
+    if ticks_per_frame is not None or best < 2:
+        return best, ticks_per_frame
+    return best, float(np.polyfit(idx[inliers], cnt[inliers], 1)[0])
 
 
 NUDGE_ALONG = (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3)  # cells
@@ -306,8 +337,9 @@ def snap_ends(frames: Sequence[np.ndarray], quad: Quad) -> Quad | None:
 
     Both ends of the strip are reference cells that are always white (one cell at the
     start, two at the end, with an always-black cell inside each), so on the mean of a few
-    frames each end is a bright block on the dark screen. The block is the one under the
-    point half a cell in from the marked end, so the strip may run either way. None if a
+    frames each end is a bright block on the dark screen. The block is the first one met
+    along the strip's centre line from a little outside the marked end (``_probe``), so the
+    strip may run either way and an end clicked a cell or so off still finds it. None if a
     block is not found or a corner would move implausibly far.
     """
     img = np.mean(np.stack([f.astype(np.float32) for f in frames]), axis=0)
@@ -322,7 +354,7 @@ def snap_ends(frames: Sequence[np.ndarray], quad: Quad) -> Quad | None:
     corners = []
     for top, bot, outward in ((a, d, -u), (b, c, u)):
         mid = (top + bot) / 2
-        found = _end_block(img, mid - outward * cell / 2, cell, height)
+        found = _end_block(img, _probe(img, mid, outward, cell, height), cell, height)
         if found is None:
             return None
         # Only the part of the block in a band around the marked strip: text or a bright
@@ -337,7 +369,7 @@ def snap_ends(frames: Sequence[np.ndarray], quad: Quad) -> Quad | None:
         down = found @ v / height
         new_top, new_bot = found[np.argmax(out_ - down)], found[np.argmax(out_ + down)]
         for new, old in ((new_top, top), (new_bot, bot)):
-            if np.linalg.norm(new - old) > max(1.5 * cell, height):
+            if np.linalg.norm(new - old) > max(PROBE_OUT * cell + 1, height):
                 return None
         corners.append((new_top, new_bot))
     (ta, da), (tb, cb) = corners
@@ -345,6 +377,29 @@ def snap_ends(frames: Sequence[np.ndarray], quad: Quad) -> Quad | None:
         return Quad.from_points([ta, tb, cb, da], quad.bow)
     except ValueError:
         return None
+
+
+PROBE_OUT, PROBE_IN = 1.75, 2.0  # cells outside and inside a marked end to look for its block
+
+
+def _probe(img: np.ndarray, mid: np.ndarray, outward: np.ndarray, cell: float,
+           height: float) -> np.ndarray:
+    """A point half a cell inside the end block nearest a marked end: the first bright
+    stretch along the centre line, walking in from ``PROBE_OUT`` cells outside the end.
+    Half a cell in from the end if nothing stands out."""
+    t = np.arange(-PROBE_OUT, PROBE_IN + 1e-9, 0.125)  # cells inward from the marked end
+    across = np.array([-outward[1], outward[0]])
+    pts = mid[None, :] - np.outer(t * cell, outward)
+    offs = np.linspace(-height / 4, height / 4, 5)
+    xs = (pts[:, None, 0] + offs[None, :] * across[0]).astype(np.float32)
+    ys = (pts[:, None, 1] + offs[None, :] * across[1]).astype(np.float32)
+    levels = cv2.remap(img.astype(np.float32), xs, ys, cv2.INTER_LINEAR,
+                       borderMode=cv2.BORDER_REPLICATE).mean(axis=1)
+    lo, hi = float(levels.min()), float(levels.max())
+    if hi - lo < 0.2 * max(hi, 1.0):
+        return mid - outward * cell / 2
+    first = int(np.argmax(levels > (lo + hi) / 2))
+    return mid - outward * (t[first] + 0.5) * cell
 
 
 def _end_block(img: np.ndarray, centre: np.ndarray, cell: float,

@@ -10,3 +10,4 @@ test-run/
 # Test footage dropped in the repo folder
 /*.MP4
 /*.mp4
+/latencyTests/

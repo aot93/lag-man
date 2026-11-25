@@ -36,7 +36,7 @@ from . import report, synth
 from .analyse import sample_frame
 from .overlay import draw, jpeg
 from .pipeline import Cancelled, run
-from .roi import Quad, read, refine
+from .roi import Quad, rate, read, refine
 from .setup import RunInfo, Setup
 from .video import Video, to_gray
 from .workspace import VIDEO_SUFFIXES, Recording, Workspace, check_name
@@ -319,18 +319,18 @@ class App:
         if not quads:
             raise bad("mark a region first")
 
-        try:
-            info = rec.run_info()
-            per_frame: float | None = info.refresh_hz / info.capture_fps
-        except (OSError, ValueError):
-            per_frame = None
-
         def work(progress, cancel):
             picks, frames = self._spread_frames(rec, progress, cancel)
             out: dict[str, Any] = {"checked": len(frames)}
+            # Reads only count if their counts keep time with the frames between them. The
+            # rate is measured, not taken from the run log and file header: a camera can
+            # record faster than its file plays. The source fixes it, and the wall, whose
+            # strip is softer, must keep the same time.
+            per_frame: float | None = None
             for which, q in quads.items():
-                # Reads only count if their counts keep time with the frames between them.
                 fitted, clean = refine(frames, q, indices=picks, ticks_per_frame=per_frame)
+                if which == "source":
+                    per_frame = rate(frames, fitted, picks)
                 out[which] = {"points": fitted.to_json(), "bow": fitted.bow, "clean": clean}
             text = ", ".join(f"{w} reads {out[w]['clean']} of {len(frames)}" for w in quads)
             return f"Fitted: {text}", out

@@ -1,6 +1,7 @@
 """Analysis extension, tested end to end on synthetic control camera recordings."""
 
 import csv
+import dataclasses
 import json
 
 import numpy as np
@@ -17,7 +18,7 @@ from lagman.analysis.analyse import (  # noqa: E402
     summarise,
 )
 from lagman.analysis.cli import main as cli  # noqa: E402
-from lagman.analysis.roi import Quad, read, refine  # noqa: E402
+from lagman.analysis.roi import Quad, rate, read, reads, refine, snap_ends  # noqa: E402
 from lagman.analysis.setup import RunInfo, Setup  # noqa: E402
 from lagman.analysis.video import Video, to_gray  # noqa: E402
 
@@ -148,6 +149,47 @@ def test_refine_snaps_misplaced_regions(clip):
                 assert abs(d @ along) < 0.25 * cell
                 assert abs(d @ (along[1], -along[0])) < 0.25 * q.height + 1
             assert abs(r.bow - q.bow) < 0.25 and clean >= exact
+
+
+def test_snap_finds_ends_marked_outside_the_strip(clip):
+    # Corners clicked on the screen a cell or so past the strip's ends, as is easy to do on
+    # a small strip: the end blocks are found along the strip, not only under the corner.
+    path, setup, _, _ = clip
+    with Video(path) as v:
+        frames = [g for _, g in v.frames(0, 12)]
+    for q in (setup.source, setup.wall):
+        cell = q.length / 30
+        for s, e in ((1.4, 1.4), (1.2, -0.3), (-0.4, 1.3)):
+            snapped = snap_ends(frames, q.adjusted(s, e))
+            assert snapped is not None
+            for a, b in zip(snapped.points, q.points, strict=True):
+                assert np.hypot(*(np.array(a) - b)) < 0.5 * cell + 1
+
+
+def test_fit_measures_the_rate(clip):
+    # A camera can record faster than its file says (100 fps in a 50p file): the clock then
+    # advances fewer ticks per file frame than the run log and file header predict. The fit
+    # measures the rate from the reads, instead of throwing away every read that does not
+    # keep the predicted time.
+    path, setup, _, _ = clip
+    with Video(path) as v:
+        frames = [g for _, g in v.frames(0, 12)]
+    indices = [10 * i for i in range(len(frames))]  # as if spread 10 frames apart
+    q = setup.source
+    assert reads(frames, q, indices) == reads(frames, q) >= 8
+    assert reads(frames, q, indices, ticks_per_frame=1.0) <= 2  # the predicted rate is wrong
+    assert rate(frames, q, indices) == pytest.approx(0.1, abs=0.005)
+    r, clean = refine(frames, q.adjusted(0.3, -0.3), indices=indices)
+    assert clean >= reads(frames, q)
+
+
+def test_breaks_use_the_measured_rate(clip):
+    path, setup, _, log = clip
+    info = RunInfo.from_run_log(log)
+    wrong = dataclasses.replace(info, capture_fps=50)  # the file says 50, the camera ran 100
+    summary = summarise(run(path, setup, wrong), wrong)
+    assert summary.measured_capture_fps == pytest.approx(100, abs=2)
+    assert summary.source_breaks == 0
 
 
 def test_quad_from_points_any_order():

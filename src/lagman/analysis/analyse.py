@@ -204,8 +204,10 @@ def summarise(samples: list[Sample], info: RunInfo) -> Summary:
         counts[s.status] += 1
     lat = [s.latency_ms for s in samples if s.status == OK and s.latency_ms is not None]
 
-    # The source strip should advance refresh/capture ticks per camera frame (1 at 100/100).
-    step = info.refresh_hz / info.capture_fps
+    # The source strip should advance refresh/capture ticks per camera frame (1 at 100/100),
+    # at the capture rate it shows: a camera can record faster than its file plays.
+    measured = measure_capture_fps(samples, info)
+    step = info.refresh_hz / (measured or info.capture_fps)
     breaks = 0
     prev: Sample | None = None
     for s in samples:
@@ -233,7 +235,7 @@ def summarise(samples: list[Sample], info: RunInfo) -> Summary:
         stdev_ms=statistics.stdev(lat) if len(lat) > 1 else None,
         source_breaks=breaks, generator_events=gen_events,
         first_tc=_tc(good[0], info) if good else "", last_tc=_tc(good[-1], info) if good else "",
-        measured_capture_fps=measure_capture_fps(samples, info),
+        measured_capture_fps=measured,
         blended=sum(1 for s in samples if s.status == OK
                     and DecodeStatus.BLEND in (s.source.status, s.wall.status)),
         **_drift(samples, info),
