@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import statistics
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -162,7 +162,38 @@ def analyse(frames: Iterable[tuple[int, np.ndarray]], setup: Setup,
             first = index
         samples.append(sample_frame(index, (index - first) * info.frame_ms / 1000, gray,
                                     setup, info, blends))
-    return samples
+    return mark_held_clock(samples, info)
+
+
+HELD_FRAMES = 10  # frames a count must hold at an end to be the clock standing still
+
+
+def mark_held_clock(samples: list[Sample], info: RunInfo) -> list[Sample]:
+    """Without a run log, find the start and stop counts from the recording: a count the
+    source holds for ``HELD_FRAMES`` or more at either end is the clock before Start or after
+    Stop. Frames showing it are then idle, as ``clock_note`` would mark them with a log."""
+    if info.start_count is not None or info.stop_count is not None:
+        return samples
+    counts = [s.source.count for s in samples
+              if s.source.status is DecodeStatus.OK and s.source.count is not None]
+    if not counts:
+        return samples
+
+    def held(seq: list[int]) -> int | None:
+        run = next((i for i, c in enumerate(seq) if c != seq[0]), len(seq))
+        return seq[0] if run >= HELD_FRAMES else None
+
+    start, stop = held(counts), held(counts[::-1])
+    if start is None and stop is None:
+        return samples
+    inferred = replace(info, start_count=start, stop_count=stop)
+    out = []
+    for s in samples:
+        note = (clock_note(s.source.count, s.wall.count, inferred)
+                if s.status in (OK, SUSPECT) and s.source.count is not None
+                and s.wall.count is not None else None)
+        out.append(replace(s, status=IDLE, note=note) if note else s)
+    return out
 
 
 @dataclass(frozen=True)
@@ -285,6 +316,12 @@ def measure_capture_fps(samples: list[Sample], info: RunInfo,
     between the first and last counting frames that read. None if too few frames read."""
     counting = [s for s in samples
                 if s.source.status is DecodeStatus.OK and s.status != IDLE]
+    # Without the right run log, frames before Start and after Stop are not marked idle:
+    # leave out the count held at each end, which would slow the rate.
+    while len(counting) > 1 and counting[1].source.count == counting[0].source.count:
+        counting.pop(0)
+    while len(counting) > 1 and counting[-2].source.count == counting[-1].source.count:
+        counting.pop()
     if len(counting) < 2 or counting[-1].frame - counting[0].frame < min_span:
         return None
     ticks = count_difference(counting[-1].source.count, counting[0].source.count)

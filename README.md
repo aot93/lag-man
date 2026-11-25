@@ -190,7 +190,10 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
   the file, because the S5 writes high-frame-rate footage into a 50p or 60p file. Override
   it with `--capture-fps`, or in the app's recording details. The analysis also measures it
   from how fast the source strip advances, and warns if it differs; the check for
-  source breaks uses the measured rate. The first S5 test was shot at 150fps. Latency
+  source breaks uses the measured rate. Without a run log, a count held for 10 or more
+  frames at the start or end is taken as the clock before Start or after Stop. If most
+  counts lie outside the attached run log's run, the analysis says the log looks like
+  another run's. The first S5 test was shot at 150fps. Latency
   figures do not depend on it; times do.
 - **Reading the strips:** cells are measured in linear light, so a cell lit for part of an
   exposure reads as in between rather than as white.

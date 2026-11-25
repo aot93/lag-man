@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..core.strip import DecodeStatus
 from .analyse import Sample, Summary, analyse, summarise
 from .overlay import draw, jpeg
 from .report import pick_review, write_outputs
@@ -46,6 +47,9 @@ def run(video_path: Path, setup: Setup, info: RunInfo, out_dir: Path,
         samples = analyse(_watched(video.frames(start, end), total, progress, cancel),
                           setup, info, blends)
         summary = summarise(samples, info)
+        outside = _outside_run(samples, info)
+        if outside:
+            warnings.append(outside)
         measured = summary.measured_capture_fps
         if measured and abs(measured - info.capture_fps) > 0.03 * info.capture_fps:
             warnings.append(
@@ -56,6 +60,19 @@ def run(video_path: Path, setup: Setup, info: RunInfo, out_dir: Path,
                   for title, s in pick_review(samples)]
     paths = write_outputs(out_dir, samples, summary, info, video_path.name, review)
     return Result(samples, summary, paths, warnings)
+
+
+def _outside_run(samples: list[Sample], info: RunInfo) -> str | None:
+    """Why the run log looks like another run's: most source counts lie outside its run."""
+    counts = [s.source.count for s in samples
+              if s.source.status is DecodeStatus.OK and s.source.count is not None]
+    flagged = sum(1 for s in samples if "source count outside" in s.note)
+    if info.start_count is None or not counts or flagged <= len(counts) / 2:
+        return None
+    stop = "" if info.stop_count is None else f" to {info.stop_count}"
+    return (f"the source strip counts {min(counts)} to {max(counts)}, but run log "
+            f"{info.run_id or ''} runs from {info.start_count}{stop}: this looks like "
+            f"another run's log. Attach the run log for this recording, or none")
 
 
 def _watched(frames: Iterator[tuple[int, np.ndarray]], total: int, progress: Progress | None,

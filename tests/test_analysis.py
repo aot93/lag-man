@@ -14,7 +14,9 @@ from lagman.analysis.analyse import (  # noqa: E402
     OK,
     SUSPECT,
     TRANSITION,
+    Sample,
     analyse,
+    measure_capture_fps,
     summarise,
 )
 from lagman.analysis.cli import main as cli  # noqa: E402
@@ -344,6 +346,55 @@ def test_capture_rate_is_measured_from_the_source_strip(clip):
     from lagman.analysis.pipeline import run as pipeline_run
     result = pipeline_run(path, setup, wrong, path.parent / "out-150")
     assert any("100 fps" in w for w in result.warnings)
+
+
+def test_capture_rate_ignores_a_held_clock():
+    # Frames before Start hold one count. Without a run log (or with the wrong one) they are
+    # not marked idle, but they must not slow the measured rate.
+    from lagman.core.strip import Decoded, DecodeStatus
+
+    def sample(frame, count):
+        d = Decoded(DecodeStatus.OK, count)
+        return Sample(frame, frame / 100, d, d, OK, 0, 0)
+    info = RunInfo.for_rate_set("50")  # 100 Hz, 100 fps
+    held = [sample(f, 500) for f in range(200)]
+    counting = [sample(f, 500 + f - 199) for f in range(200, 800)]
+    stopped = [sample(f, 1100) for f in range(800, 900)]
+    assert measure_capture_fps(held + counting + stopped, info) == pytest.approx(100, abs=1)
+
+
+def test_held_clock_is_idle_without_a_run_log():
+    # Without a run log the start and stop counts are unknown, but a count the source holds
+    # for many frames at either end is the clock standing still: idle, not 0 ms latency.
+    from lagman.analysis.analyse import IDLE, mark_held_clock
+    from lagman.core.strip import Decoded, DecodeStatus
+
+    def sample(frame, src, wall):
+        return Sample(frame, frame / 100, Decoded(DecodeStatus.OK, src),
+                      Decoded(DecodeStatus.OK, wall), OK, src - wall, (src - wall) * 10.0)
+    info = RunInfo.for_rate_set("50")
+    held = [sample(f, 500, 500) for f in range(50)]
+    catching = [sample(50 + f, 501 + f, 500) for f in range(10)]  # wall still at the start
+    counting = [sample(60 + f, 511 + f, 501 + f) for f in range(100)]
+    stopped = [sample(160 + f, 611, 601 + min(f, 10)) for f in range(40)]
+    out = mark_held_clock(held + catching + counting + stopped, info)
+    assert [s.status for s in out] == [IDLE] * 60 + [OK] * 100 + [IDLE] * 40
+    assert mark_held_clock(counting, info) == counting  # nothing held: unchanged
+    logged = dataclasses.replace(info, start_count=0, stop_count=9999)
+    assert mark_held_clock(held, logged) == held  # a run log decides instead
+
+
+def test_wrong_run_log_is_named(clip, tmp_path):
+    # A run log from another run: every count lies outside its run, so nothing is good.
+    # Say so plainly, rather than only reporting 0 good samples.
+    path, setup, _, log = clip
+    info = RunInfo.from_run_log(log)
+    other = dataclasses.replace(info, start_count=50_000, stop_count=53_000)
+    from lagman.analysis.pipeline import run as pipeline_run
+    result = pipeline_run(path, setup, other, tmp_path / "out")
+    assert result.summary.n == 0
+    assert any("run log" in w and "50000" in w for w in result.warnings)
+    assert not pipeline_run(path, setup, info, tmp_path / "ok").warnings
 
 
 def test_latency_in_frames_and_sound_distance(clip):
