@@ -3,6 +3,7 @@
 import csv
 import json
 
+import numpy as np
 import pytest
 
 pytest.importorskip("cv2")
@@ -35,9 +36,9 @@ def clip(tmp_path_factory):
     return out, Setup.load(out.with_suffix(".setup.json")), truths, log
 
 
-def run(path, setup, info):
+def run(path, setup, info, blends=True):
     with Video(path) as v:
-        return analyse(v.frames(), setup, info)
+        return analyse(v.frames(), setup, info, blends=blends)
 
 
 def test_latency_matches_truth(clip):
@@ -47,20 +48,44 @@ def test_latency_matches_truth(clip):
     samples = run(path, setup, info)
     assert len(samples) == len(truths) == 60
     for s, t in zip(samples, truths, strict=True):
+        assert s.status == OK, s.note  # every frame reads, mid-change ones as blends
+        if t.source_blend == 0 and t.wall_blend == 0:
+            assert (s.source.count, s.wall.count) == (t.source, t.wall)
+            assert s.latency_ms == pytest.approx(delay(t.frame) * 10)
+        else:
+            # A slight blend can still read cleanly as the count it mostly showed; a
+            # stronger one reads as the middle of the run. Either way, within a tick.
+            true = (t.source + t.source_blend) - (t.wall + t.wall_blend)
+            assert abs(s.latency_ticks - true) <= 1
+    summary = summarise(samples, info)
+    assert summary.counts["unreadable"] == 0 and summary.counts["suspect"] == 0
+    assert summary.source_breaks == 0
+    assert 0 < summary.blended <= sum(1 for t in truths if t.source_blend or t.wall_blend)
+    assert 65 <= summary.mean_ms <= 95
+
+
+def test_strict_reading_flags_mid_change_frames(clip):
+    path, setup, truths, log = clip
+    info = RunInfo.from_run_log(log)
+    samples = run(path, setup, info, blends=False)
+    for s, t in zip(samples, truths, strict=True):
         clean = t.source_blend == 0 and t.wall_blend == 0
         if clean:
             assert s.status == OK, s.note
             assert (s.source.count, s.wall.count) == (t.source, t.wall)
-            assert s.latency_ms == pytest.approx(delay(t.frame) * 10)
         elif s.status == OK:
             # a blend mostly showing the next count reads as that count: within one tick
             assert s.source.count - t.source in (0, 1) and s.wall.count - t.wall in (0, 1)
         else:
             assert s.status == TRANSITION
-    summary = summarise(samples, info)
-    assert summary.counts["unreadable"] == 0 and summary.counts["suspect"] == 0
-    assert summary.source_breaks == 0
-    assert 65 <= summary.mean_ms <= 95
+    assert summarise(samples, info).blended == 0
+
+
+def test_latency_over_two_seconds_is_suspect(tmp_path):
+    out = tmp_path / "far.mp4"
+    _, _, log = synth.make(out, seconds=0.1, latency_ticks=230, size=SIZE, transition_rate=0)
+    samples = run(out, Setup.load(out.with_suffix(".setup.json")), RunInfo.from_run_log(log))
+    assert all(s.status == SUSPECT and "2 s" in s.note for s in samples)
 
 
 def test_capture_rate_sets_real_time(clip):
@@ -113,10 +138,16 @@ def test_refine_snaps_misplaced_regions(clip):
         exact = sum(read(f, q).status.name == "OK" for f in frames)  # blends do not count
         for s, e in ((0.4, 0.4), (-0.35, 0.3), (0.45, -0.45)):
             r, clean = refine(frames, q.adjusted(s, e))
+            (ax, ay), (bx, by) = q.points[0], q.points[1]
+            along = np.array([bx - ax, by - ay]) / q.length
             for a, b in zip(r.points, q.points, strict=True):
-                # Within the middle half of a cell, which is all sampling needs.
-                assert abs(a[0] - b[0]) < 0.25 * cell and abs(a[1] - b[1]) < 0.25 * cell + 1
-            assert abs(r.bow) < 0.25 and clean >= exact
+                d = np.array(a) - np.array(b)
+                # Along the strip, within the middle half of a cell, which is all sampling
+                # needs; across it, within a quarter of its height (sampling is bilinear, so
+                # a corner off across the strip only tilts the sampled rows a little).
+                assert abs(d @ along) < 0.25 * cell
+                assert abs(d @ (along[1], -along[0])) < 0.25 * q.height + 1
+            assert abs(r.bow - q.bow) < 0.25 and clean >= exact
 
 
 def test_quad_from_points_any_order():
@@ -129,6 +160,11 @@ def test_quad_from_points_any_order():
         Quad.from_points([(0, 0), (1, 0), (1, 1), (0, 1)])
     with pytest.raises(ValueError):
         Quad.from_points(pts[:3])
+    # The bow is measured from the first corner's end, so it keeps its meaning however the
+    # corners are given.
+    assert Quad.from_points(pts, bow=0.5).bow == 0.5
+    reverse = [pts[1], pts[0], pts[3], pts[2]]
+    assert Quad.from_points(reverse, bow=0.5).bow == -0.5
 
 
 def test_setup_round_trip(tmp_path, clip):
@@ -211,7 +247,7 @@ def test_lens_bow_is_fitted(lens):
     bow_needed = []
     for q in (setup.source, setup.wall):
         fitted, clean = refine(frames, q)
-        assert reads(q) < len(frames) // 2  # corners alone miss the bowed middle cells
+        assert reads(Quad(q.points)) < len(frames) // 2  # corners alone miss the middle
         assert clean == len(frames)
         bow_needed.append(reads(Quad(fitted.points)) < clean)
     assert any(bow_needed)
@@ -279,3 +315,20 @@ def test_latency_in_frames_and_sound_distance(clip):
     assert s.sound_m["median"] == pytest.approx(s.median_ms * 0.343, abs=0.1)
     us = RunInfo(**{**info.__dict__, "rate_set": "60"})
     assert set(summarise(run(path, setup, info), us).in_frames) == {"30", "60"}
+
+
+def test_steady_drift_in_latency_is_warned_about(tmp_path):
+    """A region a cell out reads about half the count, so latency climbs all through the
+    recording. A real chain's latency wanders; it does not climb."""
+    out = tmp_path / "drift.mp4"
+    _, _, log = synth.make(out, seconds=3, latency_ticks=lambda f: 5 + f // 4, size=SIZE,
+                           transition_rate=0)
+    info = RunInfo.from_run_log(log)
+    s = summarise(run(out, Setup.load(out.with_suffix(".setup.json")), info), info)
+    assert s.drift_warning and s.drift_ms == pytest.approx(750, abs=60)
+
+
+def test_wandering_latency_is_not_drift(clip):
+    path, setup, _, log = clip
+    info = RunInfo.from_run_log(log)
+    assert not summarise(run(path, setup, info), info).drift_warning

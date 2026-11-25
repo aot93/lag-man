@@ -39,25 +39,37 @@ class Quad:
     """Corners of a strip in video pixels: along the top edge, then back along the bottom.
 
     Which end comes first does not matter (the strip format is direction-safe), but the
-    first edge must run along the strip's length. ``bow`` bends the cell grid along the
+    first edge must run along the strip's length. ``bow`` moves the cell grid along the
     strip: the middle cell boundary moves by ``bow`` cells (positive towards the end), the
-    ends stay put. Lens distortion bows a straight strip, which four corners cannot follow.
+    ends stay put, and the cells between grow or shrink steadily from one end to the other,
+    as perspective does to a strip seen at an angle. Lens distortion bends a strip in much
+    the same way.
     """
 
     points: tuple[Point, Point, Point, Point]
     bow: float = 0.0
 
     @classmethod
-    def from_points(cls, pts: Sequence[Sequence[float]], bow: float = 0.0) -> Quad:
-        """Accept four corners clicked in any order and put them in loop order, long edge first."""
+    def from_points(cls, pts: Sequence[Sequence[float]], bow: float | None = 0.0) -> Quad:
+        """Accept four corners clicked in any order and put them in loop order, long edge first.
+
+        ``bow`` is measured from the end the first corner is at, so it changes sign if the
+        loop order puts that end last. None estimates it from the corners (``perspective``),
+        which only suits corners that were fitted, not clicked.
+        """
         if len(pts) != 4:
             raise ValueError("a region needs exactly four corners")
-        p = [(float(x), float(y)) for x, y in pts]
+        given = [(float(x), float(y)) for x, y in pts]
+        p = list(given)
         cx = sum(x for x, _ in p) / 4
         cy = sum(y for _, y in p) / 4
         p.sort(key=lambda q: math.atan2(q[1] - cy, q[0] - cx))
         if _dist(p[0], p[1]) < _dist(p[1], p[2]):
             p = p[1:] + p[:1]
+        if bow is None:
+            bow = perspective(p)
+        elif given[0] in (p[1], p[2]):
+            bow = -float(bow)
         bow = float(bow)
         if not math.isfinite(bow) or abs(bow) > 2:
             raise ValueError("bow must be within 2 cells")
@@ -81,8 +93,7 @@ class Quad:
 
     def boundaries(self, cells: int = strip.CELLS) -> np.ndarray:
         """Cell boundary positions along the strip, in cells (``cells + 1`` of them)."""
-        t = np.arange(cells + 1) / cells
-        return np.arange(cells + 1) + self.bow * 4 * t * (1 - t)
+        return cells * _bowed(np.arange(cells + 1) / cells, np.asarray(self.bow), cells)
 
     def adjusted(self, start: float, end: float) -> Quad:
         """Move the two ends along the strip by fractions of a cell (positive is outward)."""
@@ -97,16 +108,45 @@ class Quad:
         ), self.bow)
 
 
+def perspective(points: Sequence[Point], cells: int = strip.CELLS) -> float:
+    """The bow a strip with these corners (loop order, long edge first) has if its ends
+    differ in height because one is further away: height goes as 1/distance and spacing
+    along the strip as 1/distance squared. Only a starting point: the ends' heights are
+    known to a pixel or two."""
+    a, b, c, d = points
+    near, far = _dist(a, d), _dist(b, c)
+    if near <= 0 or far <= 0:
+        return 0.0
+    k = near / far - 1
+    return float(np.clip(cells * k / (4 + 2 * k), -2, 2))
+
+
+def _bowed(t: np.ndarray, bow: np.ndarray, cells: int = strip.CELLS) -> np.ndarray:
+    """Where fraction ``t`` of the way along the strip is seen, for a ``bow`` (in cells, at
+    the middle): the spacing a flat strip has in perspective, ends fixed. Broadcasts."""
+    k = 4 * bow / (cells - 2 * bow)
+    return t * (1 + k) / (1 + k * t)
+
+
 def _dist(a: Point, b: Point) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
 def rectify(gray: np.ndarray, quad: Quad, cells: int = strip.CELLS) -> np.ndarray:
+    """The strip straightened out, ``cells`` cells of ``CELL_PX`` square.
+
+    Bilinear between the corners, not a perspective warp: a strip is a few pixels tall, so
+    its height at each end is only known to a pixel or two, and a perspective warp would
+    turn that into a squeeze along the strip of up to a cell. Foreshortening along the strip
+    is, to first order, a bow, which the fit finds from the cell edges themselves.
+    """
     w, h = cells * CELL_PX, CELL_PX
-    dst = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
-    m = cv2.getPerspectiveTransform(np.float32(quad.points), dst)
-    return cv2.warpPerspective(gray, m, (w, h), flags=cv2.INTER_LINEAR,
-                               borderMode=cv2.BORDER_REPLICATE)
+    a, b, c, d = (np.array(p, np.float32) for p in quad.points)
+    u = ((np.arange(w, dtype=np.float32) + 0.5) / w)[None, :, None]
+    v = ((np.arange(h, dtype=np.float32) + 0.5) / h)[:, None, None]
+    pts = (1 - v) * ((1 - u) * a + u * b) + v * ((1 - u) * d + u * c) - 0.5
+    return cv2.remap(gray, pts[..., 0], pts[..., 1], cv2.INTER_LINEAR,
+                     borderMode=cv2.BORDER_REPLICATE)
 
 
 def _profile(gray: np.ndarray, quad: Quad, margin: int = 0) -> np.ndarray:
@@ -159,30 +199,106 @@ def _normalised(levels: list[float]) -> list[float] | None:
 
 
 def refine(frames: Sequence[np.ndarray], quad: Quad, reach: float = 0.6,
-           step: float = 0.05) -> tuple[Quad, int]:
+           step: float = 0.05, indices: Sequence[int] | None = None,
+           ticks_per_frame: float | None = None) -> tuple[Quad, int]:
     """Fit a hand-marked quad to the strip seen in ``frames``.
 
     First each end is snapped to the white reference block there (``snap_ends``), which
     takes out the shear and tilt of corners clicked a few pixels off. Then the cell grid is
     fitted along the strip: each end moves up to ``reach`` cells and the middle bows up to
-    ``reach`` cells, keeping the grid whose boundaries best match the strip's edges.
-    Frames spread across a recording work best: more of the code's bits change, so more of
-    the boundaries show. Whichever of the snapped and as-marked starts reads more frames
-    cleanly wins. Returns the quad and that count.
+    ``BOW_REACH`` cells (perspective), keeping the grid whose boundaries best match the
+    strip's edges. Frames spread across a recording work best: more of the code's bits
+    change, so more of the boundaries show. Last, the region is nudged along and across the
+    strip, and its bow, for the most frames read (``_nudge``): on small, soft cells a pixel
+    either way decides whether a frame reads.
+
+    Given the frames' ``indices`` in the video and the clock ``ticks_per_frame``, a frame
+    only counts as read if its count fits the others: a grid a cell out can read cleanly
+    but wrongly, with counts about half or twice the true ones. Returns the quad and the
+    number of frames read.
     """
+    def score(q: Quad) -> int:
+        return reads(frames, q, indices, ticks_per_frame)
+
     starts = [(quad, reach)]
     snapped = snap_ends(frames, quad)
     if snapped is not None:
         starts.insert(0, (snapped, min(reach, 0.3)))
+    # The corners' heights also suggest a bow (a screen at an angle), but clicked corners
+    # are a pixel or two out, so that is only tried as a second start, never trusted.
+    guess = perspective(quad.points)
+    if abs(guess - quad.bow) > 0.2:
+        starts += [(Quad(q.points, guess), r) for q, r in starts]
     best: tuple[Quad, int] | None = None
     for q, r in starts:
-        for rr, st in ((r, step), (step * 2, step / 4)):  # coarse, then fine for perspective
-            q = _fit(frames, q, rr, st)
-        clean = sum(read(f, q).status is strip.DecodeStatus.OK for f in frames)
+        # Coarse, with the bow free to take up the foreshortening; then fine.
+        q = _fit(frames, q, r, step, bow_reach=max(r, BOW_REACH))
+        q = _fit(frames, q, step * 2, step / 4)
+        q, clean = _nudge(q, score, len(frames))
         if best is None or clean > best[1]:
             best = (q, clean)
     assert best is not None
     return best
+
+
+def reads(frames: Sequence[np.ndarray], quad: Quad, indices: Sequence[int] | None = None,
+          ticks_per_frame: float | None = None, tolerance: float = 6.0) -> int:
+    """How many ``frames`` read cleanly. With their ``indices`` and the clock's
+    ``ticks_per_frame``, only reads whose counts lie on one line at that rate, within
+    ``tolerance`` ticks (the wall's delay wanders a little), count."""
+    counts = [(i, d.count) for i, d in zip(range(len(frames)) if indices is None else indices,
+                                          (read(f, quad) for f in frames), strict=True)
+              if d.status is strip.DecodeStatus.OK]
+    if ticks_per_frame is None or indices is None:
+        return len(counts)
+    offsets = np.array([c - ticks_per_frame * i for i, c in counts])
+    if not len(offsets):
+        return 0
+    return int(max(np.sum(np.abs(offsets - o) <= tolerance + ticks_per_frame)
+                   for o in offsets))
+
+
+NUDGE_ALONG = (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3)  # cells
+NUDGE_ACROSS = (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3)  # strip heights
+
+
+def _nudge(quad: Quad, score, frames: int, rounds: int = 3) -> tuple[Quad, int]:
+    """Move the start, the end, the bow and the whole region across the strip, one at a
+    time, keeping a move only if it reads clearly more frames (a frame or two can read by
+    chance with the cells sampled off centre), and the smallest move that does."""
+    gain = max(2, frames // 10)
+    params = [0.0, 0.0, quad.bow, 0.0]  # start, end, bow, across
+
+    def build(p: list[float]) -> Quad:
+        q = quad.adjusted(p[0], p[1])
+        a, b, c, d = (np.array(pt, float) for pt in q.points)
+        along = (b - a) + (c - d)
+        across = np.array([-along[1], along[0]]) / np.linalg.norm(along)
+        if np.dot(across, (d - a) + (c - b)) < 0:
+            across = -across
+        shift = across * p[3] * quad.height
+        return Quad(tuple(tuple(float(v) for v in pt + shift) for pt in (a, b, c, d)),
+                    float(np.clip(p[2], -2, 2)))
+
+    best = score(quad)
+    for _ in range(rounds):
+        moved = False
+        for k, options in ((0, NUDGE_ALONG), (1, NUDGE_ALONG), (2, NUDGE_ALONG),
+                           (3, NUDGE_ACROSS)):
+            base, pick = params[k], None
+            for delta in sorted(options, key=abs):
+                if not delta:
+                    continue
+                trial = list(params)
+                trial[k] = base + delta
+                got = score(build(trial))
+                if got >= best + gain and (pick is None or got > pick[0]):
+                    pick = (got, trial)
+            if pick is not None:
+                (best, params), moved = pick, True
+        if not moved:
+            break
+    return build(params), best
 
 
 def snap_ends(frames: Sequence[np.ndarray], quad: Quad) -> Quad | None:
@@ -205,8 +321,15 @@ def snap_ends(frames: Sequence[np.ndarray], quad: Quad) -> Quad | None:
     cell, height = length / strip.CELLS, quad.height
     corners = []
     for top, bot, outward in ((a, d, -u), (b, c, u)):
-        found = _end_block(img, (top + bot) / 2 - outward * cell / 2, cell, height)
+        mid = (top + bot) / 2
+        found = _end_block(img, mid - outward * cell / 2, cell, height)
         if found is None:
+            return None
+        # Only the part of the block in a band around the marked strip: text or a bright
+        # patch just above or below can join it (the milliseconds sit right over the end).
+        across = (found - mid) @ v
+        found = found[np.abs(across) <= 0.75 * height + 1]
+        if len(found) < 4:
             return None
         # Outer corners: furthest out along the strip, then furthest up or down. Scale
         # across by cell/height so a tall thin block weighs both directions alike.
@@ -250,17 +373,22 @@ def _end_block(img: np.ndarray, centre: np.ndarray, cell: float,
     return np.stack([xs + x0, ys + y0], axis=1).astype(float)
 
 
-def _fit(frames: Sequence[np.ndarray], quad: Quad, reach: float, step: float) -> Quad:
+BOW_REACH = 1.5  # cells: a screen well off to the side foreshortens its strip about this much
+
+
+def _fit(frames: Sequence[np.ndarray], quad: Quad, reach: float, step: float,
+         bow_reach: float | None = None) -> Quad:
     # The score is a sum over frames, so add up each frame's edge strength once.
     edges = sum(np.abs(np.diff(_profile(f, quad, margin=1))) for f in frames)
     n = round(reach / step)
     grid = np.arange(-n, n + 1) * step
-    a, b, c = np.meshgrid(grid, grid, grid + quad.bow, indexing="ij")
+    nb = round((reach if bow_reach is None else bow_reach) / step)
+    bows = np.clip(np.arange(-nb, nb + 1) * step + quad.bow, -2, 2)
+    a, b, c = np.meshgrid(grid, grid, bows, indexing="ij")
     a, b, c = a.ravel(), b.ravel(), c.ravel()
     t = np.arange(strip.CELLS + 1) / strip.CELLS
     # Boundary positions in the widened profile: start shift a, length change b, bow c.
-    pos = (1 + np.arange(strip.CELLS + 1) + a[:, None] + b[:, None] * t
-           + c[:, None] * 4 * t * (1 - t)) * CELL_PX
+    pos = (1 + strip.CELLS * _bowed(t, c[:, None]) + a[:, None] + b[:, None] * t) * CELL_PX
     idx = np.clip(np.round(pos).astype(int) - 1, 0, len(edges) - 1)
     score = edges[idx].sum(axis=1)
     near_best = np.flatnonzero(score >= score.max() * (1 - 1e-4))

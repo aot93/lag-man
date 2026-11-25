@@ -1,8 +1,13 @@
 """Turn control camera frames into latency samples.
 
 Each video frame shows the source monitor and the LED wall. Both strips are decoded; the
-latency is the source count minus the wall count, in ticks of the source refresh. Frames
-where either strip is caught mid-change or cannot be read are flagged, never guessed.
+latency is the source count minus the wall count, in ticks of the source refresh.
+
+A frame that saw several counts (an exposure across a tick, or a wall that blends frames)
+is read as the run of counts it saw, when one run fits every cell (``strip.decode_blend``),
+and its latency is between the middles of the two runs, to half a tick. Otherwise, and
+with ``blends`` off, frames where either strip is caught mid-change or cannot be read are
+flagged, never guessed.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from ..core import strip
 from ..core.rates import RATE_SETS
 from ..core.strip import DecodeStatus, count_difference
 from ..core.timecode import to_timecode
-from .roi import read
+from .roi import cell_levels
 from .setup import RunInfo, Setup
 
 OK = "ok"
@@ -28,6 +33,8 @@ SUSPECT = "suspect"
 IDLE = "idle"  # the generator's clock was not counting: before Start or after Stop
 STATUSES = (OK, TRANSITION, UNREADABLE, SUSPECT, IDLE)
 SPEED_OF_SOUND = 343.0  # m/s in air at about 20 °C
+MAX_LATENCY_S = 2.0  # longer is taken as a misread region, and bounds where blends are looked for
+SOURCE_REACH = 32  # ticks either side of a blended source's rough reading to look in
 
 
 @dataclass(frozen=True)
@@ -37,7 +44,7 @@ class Sample:
     source: strip.Decoded
     wall: strip.Decoded
     status: str
-    latency_ticks: int | None = None
+    latency_ticks: float | None = None  # a half tick when read from blends
     latency_ms: float | None = None
     note: str = ""
 
@@ -64,8 +71,12 @@ def _tc(count: int | None, info: RunInfo) -> str:
 
 
 def sample_frame(index: int, time_s: float, gray: np.ndarray, setup: Setup,
-                 info: RunInfo) -> Sample:
-    src, wall = read(gray, setup.source), read(gray, setup.wall)
+                 info: RunInfo, blends: bool = True) -> Sample:
+    src_levels, wall_levels = cell_levels(gray, setup.source), cell_levels(gray, setup.wall)
+    src, wall = strip.decode(src_levels), strip.decode(wall_levels)
+    max_ticks = round(MAX_LATENCY_S * info.refresh_hz)
+    if blends:
+        src, wall = _read_blends(src, wall, src_levels, wall_levels, max_ticks)
     notes = []
     for name, d in (("source", src), ("wall", wall)):
         if d.status is not DecodeStatus.OK:
@@ -76,7 +87,9 @@ def sample_frame(index: int, time_s: float, gray: np.ndarray, setup: Setup,
         return Sample(index, time_s, src, wall, TRANSITION, note="; ".join(notes))
 
     assert src.count is not None and wall.count is not None
-    ticks = count_difference(src.count, wall.count)
+    ticks: float = count_difference(src.count, wall.count)
+    if src.span > 1 or wall.span > 1:
+        ticks += (src.span - wall.span) / 2  # between the middles of the two runs
     ms = ticks * info.tick_ms
     idle = clock_note(src.count, wall.count, info)
     if idle:
@@ -85,10 +98,30 @@ def sample_frame(index: int, time_s: float, gray: np.ndarray, setup: Setup,
     if ticks < 0:
         status = SUSPECT
         notes.append("wall ahead of source: are the regions swapped?")
+    elif ticks > max_ticks:
+        status = SUSPECT
+        notes.append(f"latency over {MAX_LATENCY_S:g} s: is a region a cell out?")
     elif not _in_run(src.count, info):
         status = SUSPECT
         notes.append("source count outside this run's range: wrong run log?")
     return Sample(index, time_s, src, wall, status, ticks, ms, "; ".join(notes))
+
+
+def _read_blends(src: strip.Decoded, wall: strip.Decoded, src_levels: list[float],
+                 wall_levels: list[float], max_ticks: int
+                 ) -> tuple[strip.Decoded, strip.Decoded]:
+    """Read either strip that did not read cleanly as a blend. The source is looked for
+    near its own rough reading; the wall up to ``max_ticks`` behind the source."""
+    if src.status is not DecodeStatus.OK:
+        near = strip.rough_count(src_levels)
+        if near is not None:
+            src = strip.decode_blend(src_levels, near - SOURCE_REACH, near + SOURCE_REACH) or src
+    if src.count is None or src.status not in (DecodeStatus.OK, DecodeStatus.BLEND):
+        return src, wall
+    last = src.count + src.span - 1
+    if wall.status is not DecodeStatus.OK:
+        wall = strip.decode_blend(wall_levels, src.count - max_ticks, last) or wall
+    return src, wall
 
 
 def clock_note(source: int, wall: int, info: RunInfo) -> str | None:
@@ -121,14 +154,14 @@ def _in_run(count: int, info: RunInfo) -> bool:
 
 
 def analyse(frames: Iterable[tuple[int, np.ndarray]], setup: Setup,
-            info: RunInfo) -> list[Sample]:
+            info: RunInfo, blends: bool = True) -> list[Sample]:
     samples = []
     first: int | None = None
     for index, gray in frames:
         if first is None:
             first = index
         samples.append(sample_frame(index, (index - first) * info.frame_ms / 1000, gray,
-                                    setup, info))
+                                    setup, info, blends))
     return samples
 
 
@@ -150,6 +183,12 @@ class Summary:
     measured_capture_fps: float | None = None
     # Latency in frames of each test camera rate of the rate set: {"25": {"median", "mean"}}
     in_frames: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Good samples read from frames that saw several counts (to the nearest half tick).
+    blended: int = 0
+    # How far the latency moves over the recording on a straight-line fit, and whether that
+    # is a steady climb (or fall) rather than wander: a sign of a misread region.
+    drift_ms: float | None = None
+    drift_warning: bool = False
     # How far sound travels in the latency: audio from that far away arrives in step with
     # the picture. {"median", "mean"} in metres.
     sound_m: dict[str, float] = field(default_factory=dict)
@@ -195,9 +234,32 @@ def summarise(samples: list[Sample], info: RunInfo) -> Summary:
         source_breaks=breaks, generator_events=gen_events,
         first_tc=_tc(good[0], info) if good else "", last_tc=_tc(good[-1], info) if good else "",
         measured_capture_fps=measure_capture_fps(samples, info),
+        blended=sum(1 for s in samples if s.status == OK
+                    and DecodeStatus.BLEND in (s.source.status, s.wall.status)),
+        **_drift(samples, info),
         **_equivalents(statistics.median(lat) if lat else None,
                        statistics.fmean(lat) if lat else None, info),
     )
+
+
+def _drift(samples: list[Sample], info: RunInfo, min_samples: int = 20) -> dict[str, Any]:
+    """The latency's straight-line change over the recording, and whether it is a steady
+    trend big enough to doubt the reading: more than five ticks and a quarter of the
+    median, with the samples close to the line."""
+    good = [(s.time_s, s.latency_ms) for s in samples
+            if s.status == OK and s.latency_ms is not None]
+    if len(good) < min_samples:
+        return {}
+    t = np.array([g[0] for g in good])
+    v = np.array([g[1] for g in good])
+    span = float(t.max() - t.min())
+    if span <= 0 or v.std() == 0:
+        return {"drift_ms": 0.0}
+    slope = float(np.polyfit(t, v, 1)[0])
+    drift = slope * span
+    r = float(np.corrcoef(t, v)[0, 1])
+    big = abs(drift) > max(5 * info.tick_ms, 0.25 * float(np.median(v)))
+    return {"drift_ms": round(drift, 1), "drift_warning": bool(big and abs(r) > 0.7)}
 
 
 def _equivalents(median_ms: float | None, mean_ms: float | None,

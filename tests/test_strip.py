@@ -113,3 +113,55 @@ def test_count_difference_wraps():
     assert count_difference(5, 2) == 3
     assert count_difference(1, strip.COUNT_MODULUS - 2) == 3
     assert count_difference(2, 5) == -3
+
+
+def test_blurred_reference_cells_still_decode():
+    """Small cells on a soft picture: a black reference picks up light from the whites
+    beside it, one far more than the other, and the lead white fades into the screen
+    around it."""
+    for count in (130, 2744, 5_000_000):
+        lv = levels_for(count, white=200.0, black=10.0)
+        lv[1], lv[-3] = 85.0, 30.0
+        lv[0] = 150.0  # the lead white, at the strip's end, dimmed by the dark around it
+        d = decode(lv)
+        assert d.status is DecodeStatus.OK and d.count == count
+        assert decode(lv[::-1]).count == count  # still tells which way round it is
+
+
+def blended(counts, clip=False, white=200.0, black=10.0):
+    """Levels for an exposure that saw ``counts`` for equal times; ``clip`` saturates any
+    cell lit for part of it (an over-exposed LED wall)."""
+    cells = [sum(encode(c)[i] for c in counts) / len(counts) for i in range(strip.CELLS)]
+    if clip:
+        cells = [1.0 if v > 0 else 0.0 for v in cells]
+    return [black + (white - black) * v for v in cells]
+
+
+def test_blend_of_several_counts_reads_as_its_span():
+    for counts in ([130, 131, 132], [2744, 2745], [999, 1000, 1001, 1002], [5_000_000]):
+        d = strip.decode_blend(blended(counts), counts[0] - 150, counts[-1] + 5)
+        assert d is not None and d.status is DecodeStatus.BLEND
+        assert (d.count, d.count + d.span - 1) == (counts[0], counts[-1])
+        assert d.centre == sum(counts) / len(counts)
+
+
+def test_clipped_blend_reads_within_its_run():
+    """Over-exposed, every cell lit for part of the exposure reads white: the OR of the
+    codes, which can itself be another count's code (130 to 132 OR to 133's). So a clipped
+    blend is read to within its own length, not exactly."""
+    for counts in ([130, 131, 132], [2744, 2745, 2746], [999, 1000, 1001, 1002]):
+        d = strip.decode_blend(blended(counts, clip=True), counts[0] - 150, counts[-1] + 5)
+        assert d is not None
+        assert abs(d.centre - sum(counts) / len(counts)) <= len(counts)
+
+
+def test_blend_needs_the_counts_in_range_and_reads_either_way_round():
+    lv = blended([130, 131, 132])
+    assert strip.decode_blend(lv, 500, 700) is None
+    d = strip.decode_blend(lv[::-1], 0, 200)
+    assert d is not None and d.reversed and (d.count, d.span) == (130, 3)
+
+
+def test_blend_longer_than_the_limit_is_not_read():
+    lv = blended(list(range(100, 140)))
+    assert strip.decode_blend(lv, 0, 200) is None

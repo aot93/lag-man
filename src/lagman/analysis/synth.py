@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 from ..core import layout as layout_mod
+from ..core import strip
 from ..core.config import GeneratorConfig
 from ..core.rates import get_rate_set
 from ..generator.scene import Fill, compose
@@ -64,16 +65,24 @@ def _place(frame: np.ndarray, screen: np.ndarray, corners: np.ndarray, gain: flo
 
 def _strip_quad(lay: layout_mod.Layout, corners: np.ndarray, size: tuple[int, int],
                 lens: float) -> Quad:
-    """The strip's corners as seen. With lens distortion the corners are exact but the
-    middle bows away from the straight edges, which is what ``refine`` has to find."""
+    """The strip's corners as seen, with the bow that the perspective puts on its cells.
+    With lens distortion the corners are exact but the middle bows further away from the
+    straight edges, which is what ``refine`` has to find."""
     w, h = lay.width, lay.height
     m = cv2.getPerspectiveTransform(np.float32([[0, 0], [w, 0], [w, h], [0, h]]), corners)
     s = lay.strip
     pts = np.float32([[[s.x, s.y], [s.right, s.y], [s.right, s.bottom], [s.x, s.bottom]]])
     out = cv2.perspectiveTransform(pts, m)[0]
+    # Where the middle of the strip lands between its ends: the foreshortening, which the
+    # analysis takes as a bow.
+    mid_y = (s.y + s.bottom) / 2
+    line = np.float32([[[s.x, mid_y], [s.x + s.w / 2, mid_y], [s.right, mid_y]]])
+    start, middle, end = cv2.perspectiveTransform(line, m)[0]
+    t = float((middle - start) @ (end - start) / ((end - start) @ (end - start)))
+    bow = (t - 0.5) * strip.CELLS
     if lens:
         out = [_distort(p, size, lens) for p in out]
-    return Quad(tuple((float(x), float(y)) for x, y in out))  # type: ignore[arg-type]
+    return Quad(tuple((float(x), float(y)) for x, y in out), round(bow, 3))  # type: ignore[arg-type]
 
 
 def _barrel_map(size: tuple[int, int], k: float) -> tuple[np.ndarray, np.ndarray]:

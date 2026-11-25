@@ -157,7 +157,7 @@ def _scatter_svg(samples: Sequence[Sample], info: RunInfo) -> str:
         parts.append(f'<circle class="dot" data-frame="{s.frame}" cx="{x(s.time_s):.1f}" '
                      f'cy="{y(s.latency_ms):.1f}" '
                      f'r="{radius}"><title>Frame {s.frame} · {s.time_s:.2f} s · '
-                     f'{s.latency_ms:.1f} ms ({s.latency_ticks} ticks)</title></circle>')
+                     f'{s.latency_ms:.1f} ms ({s.latency_ticks:g} ticks)</title></circle>')
     lane_y = plot_bottom + 12
     parts.append(f'<text class="lane" x="{left - 8}" y="{lane_y + lane / 2 + 4:.1f}" '
                  f'text-anchor="end">flagged</text>')
@@ -176,7 +176,9 @@ def _histogram_svg(samples: Sequence[Sample], info: RunInfo) -> str:
         return ""
     counts = Counter(s.latency_ticks for s in good)
     lo, hi = min(counts), max(counts)
-    bins = list(range(lo, hi + 1))
+    # Half-tick bins once any sample was read from blends.
+    step = 1 if all(float(v).is_integer() for v in counts) else 0.5
+    bins = [lo + i * step for i in range(round((hi - lo) / step) + 1)]
     W, H = 900, 220
     left, right, top, bottom = 56, 16, 22, 186
     peak = max(counts.values())
@@ -239,16 +241,26 @@ def html_report(samples: Sequence[Sample], summary: Summary, info: RunInfo, vide
                   slate.get("CAMERA"), f"{slate['FPS']} fps" if slate.get("FPS") else None]
     title = " · ".join(b for b in title_bits if b) or "Latency report"
     c = summary.counts
-    checks = [
-        (c[OK], "good samples used for the figures"),
-        (c[TRANSITION], "frames with a strip caught mid-change (flagged, not used)"),
-        (c[UNREADABLE], "frames where a strip could not be read (glare, moiré, obstruction)"),
-        (c[SUSPECT], "frames that decoded but look wrong (negative latency, or outside the run)"),
-        (c[IDLE], "frames before Start or after Stop, when the clock was not counting (left out)"),
-        (summary.source_breaks, "places where the source strip did not advance as expected"),
+    checks = [  # (number, what it counts, whether a non-zero number is a warning)
+        (c[OK], "good samples used for the figures", False),
+        (summary.blended, "of them read from frames that saw several counts (the middle of "
+                          "the counts seen, to the nearest half tick)", False),
+        (c[TRANSITION], "frames with a strip caught mid-change (flagged, not used)", True),
+        (c[UNREADABLE], "frames where a strip could not be read (glare, moiré, obstruction)",
+         True),
+        (c[SUSPECT], "frames that decoded but look wrong (negative latency, over "
+                     "2 s, or outside the run)", True),
+        (c[IDLE], "frames before Start or after Stop, when the clock was not counting "
+                  "(left out)", False),
+        (summary.source_breaks, "places where the source strip did not advance as expected",
+         True),
         (summary.generator_events,
-         "dropped or repeated generator frames logged during this window"),
+         "dropped or repeated generator frames logged during this window", True),
     ]
+    if summary.drift_warning:
+        checks.append((f"{summary.drift_ms:+.0f} ms", "steady drift in latency over the "
+                       "recording. A real chain's latency wanders but does not climb: check "
+                       "that each region's ticks sit on the cell edges", True))
     rows = "".join(
         "<tr>" + "".join(
             f'<td class="{"r mono" if k not in ("status", "note") else ""}">'
@@ -296,11 +308,12 @@ frames · σ {_fmt(summary.stdev_ms)}</div></div>
 </div>
 <section><h2>Latency over time</h2><div class="card">{_scatter_svg(samples, info)}</div>
 <p class="hint">Each dot is one good control camera frame. Ticks below mark flagged frames.
-Resolution is one source tick ({info.tick_ms:.3f} ms).</p></section>
+Resolution is one source tick ({info.tick_ms:.3f} ms){
+    ", or half a tick for frames read from blends" if summary.blended else ""}.</p></section>
 <section><h2>Distribution</h2><div class="card">{_histogram_svg(samples, info)}</div></section>
 <section><h2>Checks</h2><ul class="checks">{"".join(
-        f'<li class="{"warn" if n and i > 0 else ""}"><strong>{n}</strong> {escape(text)}</li>'
-        for i, (n, text) in enumerate(checks))}</ul></section>
+        f'<li class="{"warn" if n and warn else ""}"><strong>{escape(str(n))}</strong> '
+        f'{escape(text)}</li>' for n, text, warn in checks)}</ul></section>
 <section><h2>Review frames</h2><p class="hint">Blue outlines the source monitor strip, red the
 LED wall strip, with the values decoded from each.</p>
 <div class="reviews">{_review_html(review, info)}</div></section>

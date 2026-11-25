@@ -132,7 +132,7 @@ def test_whole_workflow(server, clip):
     body = {"frame": 0, "source": truth.source.adjusted(0.3, -0.3).to_json(),
             "wall": truth.wall.adjusted(-0.2, 0.3).to_json()}
     check = c.ok("POST", f"/api/recordings/{rid}/check", body)
-    assert check["source"]["ok_frames"] > 0 and check["latency_ticks"]
+    assert "ok_frames" in check["source"]  # these screens are angled: reads come with the fit
     assert c.call("POST", f"/api/recordings/{rid}/fit", {"source": [[0, 0]]})[0] == 400
     job = wait_job(c, c.ok("POST", f"/api/recordings/{rid}/fit", body)["id"])
     assert job["state"] == "done", job["message"]
@@ -140,6 +140,8 @@ def test_whole_workflow(server, clip):
     for which in ("source", "wall"):
         assert fit[which]["clean"] >= fit["checked"] // 2 and "bow" in fit[which]
         body[which], body[f"{which}_bow"] = fit[which]["points"], fit[which]["bow"]
+    check = c.ok("POST", f"/api/recordings/{rid}/check", body)
+    assert check["source"]["ok_frames"] > 0 and check["latency_ticks"]
     assert c.call("POST", f"/api/recordings/{rid}/regions", {**body, "name": "../x"})[0] == 400
     saved = c.ok("POST", f"/api/recordings/{rid}/regions", {**body, "name": "Cam pos 1"})
     assert saved["setup"]["source"] == fit["source"]["points"]  # saved as shown, not refitted

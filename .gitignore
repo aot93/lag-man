@@ -7,3 +7,6 @@ dist/
 runs/
 .claude/settings.local.json
 test-run/
+# Test footage dropped in the repo folder
+/*.MP4
+/*.mp4

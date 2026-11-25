@@ -49,7 +49,8 @@ def cmd_analyse(args: argparse.Namespace) -> int:
     out = args.out or args.video.with_name(args.video.stem + "-latency")
     print(f"analysing {args.video.name}: {info.frame_ms:.3f} ms per frame at "
           f"{info.capture_fps} fps capture", file=sys.stderr)
-    result = run(args.video, Setup.load(args.setup), info, out, args.start, args.end)
+    result = run(args.video, Setup.load(args.setup), info, out, args.start, args.end,
+                 blends=not args.no_blends)
     for warning in result.warnings:
         print(f"warning: {warning}", file=sys.stderr)
     summary = result.summary
@@ -59,6 +60,9 @@ def cmd_analyse(args: argparse.Namespace) -> int:
           f"min {summary.min_ms} ms, max {summary.max_ms} ms; flagged {c['transition']} "
           f"mid-change, {c['unreadable']} unreadable, {c['suspect']} suspect, "
           f"{c['idle']} with the clock stopped")
+    if summary.blended:
+        print(f"{summary.blended} of the good samples were read from frames that saw several "
+              "counts, to the nearest half tick")
     if summary.in_frames and summary.sound_m:
         frames = ", ".join(f"{v['median']:.1f} frames at {fps} fps"
                            for fps, v in summary.in_frames.items())
@@ -158,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--out", type=Path, help="output folder (default <video>-latency)")
     a.add_argument("--start", type=float, help="start this many seconds (real time) in")
     a.add_argument("--end", type=float, help="stop this many seconds (real time) in")
+    a.add_argument("--no-blends", action="store_true",
+                   help="flag frames that saw several counts instead of reading them to the "
+                        "nearest half tick")
     a.set_defaults(fn=cmd_analyse)
 
     r = sub.add_parser("review", help="draw the regions and decoded values on one frame")

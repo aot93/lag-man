@@ -162,7 +162,7 @@ class App:
         self.token = secrets.token_urlsafe(24)
         self._videos: dict[str, tuple[Video, threading.Lock]] = {}
         self._vlock = threading.Lock()
-        self._spread: tuple[str, list] | None = None  # (recording id, frames) for fitting
+        self._spread: tuple[str, list[int], list] | None = None  # (recording, picks, frames)
 
     # videos are opened once per recording and shared, one reader at a time
     def _video(self, rec: Recording) -> tuple[Video, threading.Lock]:
@@ -319,21 +319,28 @@ class App:
         if not quads:
             raise bad("mark a region first")
 
+        try:
+            info = rec.run_info()
+            per_frame: float | None = info.refresh_hz / info.capture_fps
+        except (OSError, ValueError):
+            per_frame = None
+
         def work(progress, cancel):
-            frames = self._spread_frames(rec, progress, cancel)
+            picks, frames = self._spread_frames(rec, progress, cancel)
             out: dict[str, Any] = {"checked": len(frames)}
             for which, q in quads.items():
-                fitted, clean = refine(frames, q)
+                # Reads only count if their counts keep time with the frames between them.
+                fitted, clean = refine(frames, q, indices=picks, ticks_per_frame=per_frame)
                 out[which] = {"points": fitted.to_json(), "bow": fitted.bow, "clean": clean}
             text = ", ".join(f"{w} reads {out[w]['clean']} of {len(frames)}" for w in quads)
             return f"Fitted: {text}", out
 
         return self.jobs.submit("fit", rec.id, f"Fit regions on {rec.video_path.name}", work)
 
-    def _spread_frames(self, rec: Recording, progress, cancel) -> list:
+    def _spread_frames(self, rec: Recording, progress, cancel) -> tuple[list[int], list]:
         cached = self._spread
         if cached and cached[0] == rec.id:
-            return cached[1]
+            return cached[1], cached[2]
         video, lock = self._video(rec)
         count = max(1, video.frame_count)
         picks = sorted({round(i * (count - 1) / max(1, FIT_FRAMES - 1))
@@ -345,8 +352,8 @@ class App:
             with lock:
                 frames.append(to_gray(video.read(i)))
             progress(done, len(picks))
-        self._spread = (rec.id, frames)  # one recording's worth: about 50 MB at 1080p
-        return frames
+        self._spread = (rec.id, picks, frames)  # one recording's worth: about 50 MB at 1080p
+        return picks, frames
 
     # ---- jobs ----
 
@@ -357,9 +364,11 @@ class App:
         info = self._run_info(rec)
         out = self.ws.results_dir(rec.id)
         start, end = body.get("start_s"), body.get("end_s")
+        blends = body.get("blends", True) is not False
 
         def work(progress, cancel) -> str:
-            result = run(rec.video_path, setup, info, out, start, end, progress, cancel)
+            result = run(rec.video_path, setup, info, out, start, end, progress, cancel,
+                         blends)
             rec.analysed, rec.error = _now(), None
             self.ws.save()
             s = result.summary
@@ -558,7 +567,7 @@ def _row_to_sample(row: dict[str, str]):
 
     dummy = Decoded(DecodeStatus.OK)
     return Sample(int(row["frame"]), float(row["time_s"]), dummy, dummy, row["status"],
-                  num(row["latency_ticks"], int), num(row["latency_ms"]), row["note"])
+                  num(row["latency_ticks"]), num(row["latency_ms"]), row["note"])
 
 
 def _runlog_meta(path: Path) -> dict[str, Any] | None:

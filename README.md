@@ -155,8 +155,11 @@ the whole workflow happens there:
    Without a run log, choose the rate set by hand.
 3. **Mark the regions** on a frame: click near the four corners of each strip. Each region
    is then fitted automatically, using frames from across the recording. The ends snap to
-   the white reference cells, which takes out a few pixels of error, and the cell grid
-   bows to follow lens distortion. Ticks show where each cell edge is expected. Drag a
+   the white reference cells, which takes out a few pixels of error; the cell grid bows to
+   follow perspective (a screen at an angle) and lens distortion; and last the region is
+   nudged along and across the strip to read the most frames. A frame only counts as read
+   if its count keeps time with the others, so a grid a cell out (which can read cleanly
+   but wrongly) is not chosen. Ticks show where each cell edge is expected. Drag a
    corner, or click it and nudge it with the arrow keys (Shift for bigger steps), and
    **Fit to cells** fits again. Save the regions as a named setup that later recordings
    from the same camera position can reuse.
@@ -186,20 +189,31 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
   from how fast the source strip advances, and warns if it differs. The first S5 test was
   shot at 150fps. Latency figures do not depend on it; times do.
 - **Reading the strips:** cells are measured in linear light, so a cell lit for part of an
-  exposure reads as in between rather than as white. A shutter much faster than the
-  frame interval (1/500 s, say) catches fewer frames mid-change.
+  exposure reads as in between rather than as white.
+- **Blended frames:** a frame that saw several counts (a shutter as long as a tick, which
+  catches nearly every frame across a change; or a wall chain that mixes frames) is read
+  as the run of counts it saw, when one run fits every cell, and counts as the middle of
+  it. This is on by default; untick **Read blended frames** (or `--no-blends`) to flag
+  such frames instead. An over-exposed wall (white cells clipped) shows any cell lit
+  during the exposure as white, so its blends are only read to within their length:
+  expose for the wall, or close down a stop, when you can. See
+  [docs/strip-format.md](docs/strip-format.md).
 - **Latency:** source count minus wall count, times the tick (10ms at 100Hz, 8.333ms at
-  120Hz). The resolution is one tick.
+  120Hz). The resolution is one tick, or half a tick for blended frames.
 - **Equivalents:** the median and mean are also given in frames at the rate set's test
   camera rates (25 and 50fps, or 30 and 60fps), and as the distance sound travels in that
   time at 343 m/s: audio from that far away arrives in step with the picture.
 - **Flagged frames:** these are left out of the figures and listed in the report:
   - a strip caught mid-change
   - a strip that cannot be read (glare, moiré)
-  - a reading that looks wrong: negative latency (regions swapped), or a count outside the
-    run log's range (wrong log)
+  - a reading that looks wrong: negative latency (regions swapped), over 2 s (a region a
+    cell out reads about half the count), or a count outside the run log's range (wrong
+    log)
   - frames from before Start or after Stop, when the clock was not counting (listed as
     idle, not as problems)
+- **Drift:** if the latency climbs (or falls) steadily through the recording, the checks
+  say so. A real chain's latency wanders but does not climb; a steady climb means a region
+  is misread.
 - **Theme:** the generator page, the analysis app and the report each have an Auto / Light
   / Dark switch. Auto follows the system. Printing always uses the light print style.
 - **Report:** one self-contained HTML file with the slate, figures, a latency-over-time

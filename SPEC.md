@@ -179,7 +179,8 @@ This application reads a control camera recording and calculates latency for eve
 
 - For each video frame, decode the binary or Gray-code strip in both regions. Decoding the strip is preferred over reading digits, since it is more reliable. Reading the digits is an optional fallback.
 - Latency for a frame = source count minus wall count, converted to milliseconds using the time code rate.
-- Handle partly transitioned codes (a code caught mid-change) by flagging or discarding them rather than guessing.
+- Handle partly transitioned codes (a code caught mid-change, or a frame that saw several counts) by reading them as the run of counts seen only when one run fits every cell, to half a tick, and otherwise flagging them rather than guessing. Reading such frames can be turned off.
+- Flag readings that cannot be right: negative latency, latency over 2 s, or latency that climbs steadily through a recording (a misplaced region).
 - Flag frames where either region cannot be decoded, for example from glare or moiré.
 
 **Output**

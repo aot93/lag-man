@@ -464,7 +464,7 @@ function regionsTab(box, info) {
   const saved = h("div", { class: "alert ok", hidden: true }, h("p", {}));
 
   const pts = { source: info.setup?.source || [], wall: info.setup?.wall || [] };
-  const bow = { source: info.setup?.source_bow || 0, wall: info.setup?.wall_bow || 0 };
+  const bow = { source: info.setup?.source_bow ?? 0, wall: info.setup?.wall_bow ?? 0 };
   let sel = null; // the corner arrow keys move: { name, i }
   let fitting = null; // job id of a fit in progress
   const fitQueue = new Set(); // regions to fit once it finishes
@@ -518,11 +518,12 @@ function regionsTab(box, info) {
   // hide it: they should line up with the edges between cells.
   function drawCells(ctx, q, b, lw) {
     const map = squareToQuad(q);
+    const bowK = bowFactor(b);
     ctx.lineWidth = Math.max(1, lw / 2);
     ctx.beginPath();
     for (let k = 0; k <= CELLS; k++) {
       const t = k / CELLS;
-      const u = (k + b * 4 * t * (1 - t)) / CELLS;
+      const u = (t * (1 + bowK)) / (1 + bowK * t);
       const len = k % 5 === 0 ? 0.6 : 0.35;
       for (const [v0, v1] of [[-len, 0], [1, 1 + len]]) {
         const [x0, y0] = map(u, v0);
@@ -730,22 +731,19 @@ function stripOrder(p) {
   return q;
 }
 
-// Projective map from the unit square (u along the strip, v across) onto a quad given as
-// the images of (0,0), (1,0), (1,1), (0,1): the same rectification the analysis does.
+// Bilinear map from the unit square (u along the strip, v across) onto a quad given as the
+// images of (0,0), (1,0), (1,1), (0,1): the same sampling the analysis does (roi.rectify).
 function squareToQuad([[x0, y0], [x1, y1], [x2, y2], [x3, y3]]) {
-  const dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3;
-  const dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
-  let g = 0, hh = 0;
-  if (dx3 || dy3) {
-    const den = dx1 * dy2 - dx2 * dy1;
-    g = (dx3 * dy2 - dx2 * dy3) / den;
-    hh = (dx1 * dy3 - dx3 * dy1) / den;
-  }
-  const a = x1 - x0 + g * x1, b = x3 - x0 + hh * x3, c = y1 - y0 + g * y1, d = y3 - y0 + hh * y3;
-  return (u, v) => {
-    const w = g * u + hh * v + 1;
-    return [(a * u + b * v + x0) / w, (c * u + d * v + y0) / w];
-  };
+  return (u, v) => [
+    (1 - v) * ((1 - u) * x0 + u * x1) + v * ((1 - u) * x3 + u * x2),
+    (1 - v) * ((1 - u) * y0 + u * y1) + v * ((1 - u) * y3 + u * y2),
+  ];
+}
+
+// Perspective spacing along the strip for a bow (the middle boundary's shift, in cells),
+// as roi._bowed: fraction t of the way along is seen at t(1+k)/(1+kt).
+function bowFactor(b) {
+  return (4 * b) / (CELLS - 2 * b);
 }
 
 // -- analyse --
@@ -755,11 +753,13 @@ function analyseTab(box, info) {
   const ready = info.setup && !info.run.error && (rec.run_log || rec.rate_set || true);
   const startIn = h("input", { type: "number", min: "0", step: "0.1", placeholder: "start" });
   const endIn = h("input", { type: "number", min: "0", step: "0.1", placeholder: "end" });
+  const blendsIn = h("input", { type: "checkbox", checked: true });
   const btn = h("button", { class: "btn primary", type: "button", disabled: !ready }, info.summary ? "Analyse again" : "Analyse");
   btn.addEventListener("click", async () => {
     const body = {};
     if (startIn.value) body.start_s = Number(startIn.value);
     if (endIn.value) body.end_s = Number(endIn.value);
+    body.blends = blendsIn.checked;
     if (await act(() => api("POST", `recordings/${enc(rec.id)}/analyse`, body))) { await refreshState(); updateProgress(); }
   });
   const missing = [];
@@ -776,6 +776,8 @@ function analyseTab(box, info) {
       missing.length ? h("ul", { class: "checks mt-s" }, missing.map((m) => { m.className = "warn"; return m; })) : null,
       h("div", { class: "form mt-s" }, h("label", {}, "From (s, real time)", startIn), h("label", {}, "To (s, real time)", endIn)),
       h("p", { class: "hint", text: "Leave blank to analyse the whole recording." }),
+      h("div", { class: "choice" }, h("label", {}, blendsIn, h("span", {}, "Read blended frames",
+        h("small", { text: "A frame that saw several counts (a shutter longer than a tick, or a wall that mixes frames) is read as the middle of the counts it saw, to the nearest half tick. Off: such frames are flagged and left out." })))),
       h("div", { class: "toolbar mt-s" }, btn)),
     card("Progress", h("div", { id: "progress-box" }))));
   updateProgress();
@@ -870,12 +872,14 @@ async function resultsTab(box, info) {
   };
   const checks = [
     [c.ok, "good samples used for the figures", false],
+    [s.blended ?? 0, "of them read from frames that saw several counts (the middle of the counts seen, to the nearest half tick)", false],
     [c.transition, "frames with a strip caught mid-change (left out)", true],
     [c.unreadable, "frames where a strip could not be read", true],
-    [c.suspect, "frames that decoded but look wrong (negative latency, or outside the run)", true],
+    [c.suspect, "frames that decoded but look wrong (negative latency, over 2 s, or outside the run)", true],
     [c.idle ?? 0, "frames before Start or after Stop, when the clock was not counting (left out)", false],
     [s.source_breaks, "places where the source strip did not advance as expected", true],
     [s.generator_events, "dropped or repeated generator frames during this recording", true],
+    ...(s.drift_warning ? [[`${s.drift_ms > 0 ? "+" : ""}${Math.round(s.drift_ms)} ms`, "steady drift in latency over the recording. A real chain's latency wanders but does not climb: check that each region's ticks sit on the cell edges", true]] : []),
   ];
   const fileLink = (name, label, download) => h("a", { class: "btn", href: link(`recordings/${enc(rec.id)}/files/${name}`, download ? { download: 1 } : {}), target: download ? null : "_blank", rel: "noopener" }, label);
 

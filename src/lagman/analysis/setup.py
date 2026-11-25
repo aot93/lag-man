@@ -31,8 +31,10 @@ class Setup:
     def from_json(cls, data: dict[str, Any]) -> Setup:
         try:
             size = data.get("video_size")
-            return cls(Quad.from_points(data["source"], data.get("source_bow") or 0.0),
-                       Quad.from_points(data["wall"], data.get("wall_bow") or 0.0),
+            # Setups from before the bow was saved estimate it from the corners, as the
+            # perspective warp they were sampled with then did.
+            return cls(Quad.from_points(data["source"], data.get("source_bow")),
+                       Quad.from_points(data["wall"], data.get("wall_bow")),
                        tuple(size) if size else None, data.get("marked_on_frame"))
         except (KeyError, TypeError) as e:
             raise ValueError(f"setup file is missing or has a malformed field: {e}") from None

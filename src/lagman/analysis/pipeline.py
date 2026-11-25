@@ -32,7 +32,8 @@ class Result:
 
 def run(video_path: Path, setup: Setup, info: RunInfo, out_dir: Path,
         start_s: float | None = None, end_s: float | None = None,
-        progress: Progress | None = None, cancel: threading.Event | None = None) -> Result:
+        progress: Progress | None = None, cancel: threading.Event | None = None,
+        blends: bool = True) -> Result:
     warnings: list[str] = []
     with Video(video_path) as video:
         if setup.video_size and tuple(setup.video_size) != (video.width, video.height):
@@ -43,7 +44,7 @@ def run(video_path: Path, setup: Setup, info: RunInfo, out_dir: Path,
         end = round(end_s * info.capture_fps) if end_s else None
         total = max(0, (min(end, video.frame_count) if end else video.frame_count) - start)
         samples = analyse(_watched(video.frames(start, end), total, progress, cancel),
-                          setup, info)
+                          setup, info, blends)
         summary = summarise(samples, info)
         measured = summary.measured_capture_fps
         if measured and abs(measured - info.capture_fps) > 0.03 * info.capture_fps:
