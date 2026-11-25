@@ -206,6 +206,7 @@ def test_outputs_and_combine(tmp_path, clip):
     assert data["camera"] == "Synthetic cam" and data["n"] == summary.n
     html = paths["report"].read_text()
     assert "Synthetic cam" in html and "<svg" in html and "http" not in html.split("<body>")[0]
+    assert 'class="pdf"' in html and "window.print()" in html  # Save as PDF via the print dialog
     combined = report.combine([data, {**data, "n": 10, "mean_ms": 100.0}])
     assert combined[0]["runs"] == 2 and combined[0]["samples"] == data["n"] + 10
 

@@ -218,7 +218,9 @@ uv run lagman-analyse mark A001.mp4   # opens the app on this video's regions st
   / Dark switch. Auto follows the system. Printing always uses the light print style.
 - **Report:** one self-contained HTML file with the slate, figures, a latency-over-time
   chart, the distribution, checks, review frames with the regions drawn on, and every
-  sample. It prints cleanly.
+  sample. **Save PDF** at the top opens the browser's print dialog: choose "Save as PDF"
+  as the printer. The PDF is in the light style and leaves out the sample table (that is
+  in results.csv).
 - **Strip direction:** a strip read right to left (marked backwards, or seen in a mirror)
   is detected and decoded correctly.
 

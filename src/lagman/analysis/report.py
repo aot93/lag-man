@@ -287,6 +287,8 @@ def html_report(samples: Sequence[Sample], summary: Summary, info: RunInfo, vide
 <body><div class="wrap">
 <header class="mast"><img class="logo" src="data:image/png;base64,{logo}" alt="VYV">
 <span class="product">lag-man</span><span class="tag-eyebrow">Latency report</span>
+<button class="pdf" type="button" onclick="window.print()"
+title="Opens the print dialog: choose Save as PDF">Save PDF</button>
 <div class="theme" role="radiogroup" aria-label="Theme"><button value="system">Auto</button><button
 value="light">Light</button><button value="dark">Dark</button></div></header>
 <p class="eyebrow">Glass-to-glass latency</p>

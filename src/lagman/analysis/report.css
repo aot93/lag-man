@@ -6,7 +6,9 @@ body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--font-body);-webk
 @media (max-width:640px){.wrap{padding:16px 16px 56px}}
 .mast{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:14px;margin-bottom:26px;border-bottom:3px solid;border-image:var(--accent-gradient) 1}
 .mast .logo{height:34px;width:auto}
-.theme{margin-left:auto;display:flex}
+.pdf{margin-left:auto;font:600 .72rem var(--font-display);color:var(--ink2);background:transparent;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 9px;cursor:pointer}
+.pdf:hover{color:var(--accent)}
+.theme{margin-left:auto;display:flex}.pdf+.theme{margin-left:0}
 .theme button{font:600 .72rem var(--font-display);color:var(--ink2);background:transparent;border:1px solid var(--border);padding:3px 9px;margin-left:-1px;cursor:pointer}
 .theme button:first-child{border-radius:var(--radius-sm) 0 0 var(--radius-sm);margin-left:0}
 .theme button:last-child{border-radius:0 var(--radius-sm) var(--radius-sm) 0}
@@ -59,4 +61,5 @@ table.data td.r{text-align:right;font-variant-numeric:tabular-nums}
 table.data td.mono{font-size:.75rem}
 table.data tbody tr:hover td{background:color-mix(in srgb,var(--accent) 4.5%,transparent)}
 .foot{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:.8rem}
-@media print{.theme{display:none}.samples{display:none}.reviews{grid-template-columns:1fr 1fr}.kf,.card,figure{break-inside:avoid}}
+@page{margin:14mm}
+@media print{html,body{font-size:13px}.wrap{max-width:none;padding:0}.mast{margin-bottom:16px}.keyfacts{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:14px 0 4px}.kf,.card{padding:12px}.kf .n{font-size:1.5rem}.two{grid-template-columns:1fr 1fr}h2{margin:22px 0 8px}.theme,.pdf{display:none}.samples{display:none}.reviews{grid-template-columns:1fr 1fr}.kf,.card,figure{break-inside:avoid}}
