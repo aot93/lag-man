@@ -23,14 +23,14 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ..core import layout as layout_mod
 from ..core.clock import Clock
-from ..core.config import SCREENS, GeneratorConfig
+from ..core.config import SCREENS, GeneratorConfig, SlateScreenConfig
 from ..core.display import DisplayControl, DisplayMode, usable_modes
 from ..core.framemon import FrameEvent, FrameMonitor
 from ..core.ltc import ltc_fps
@@ -39,7 +39,7 @@ from ..core.runlog import RunLog, new_run_id
 from ..core.slate import slate_lines
 from ..core.timecode import parse_timecode, to_timecode
 from ..core.wallclock import WallClock
-from .scene import Fill, Op, compose, compose_slate_screen, hex_colour
+from .scene import Fill, Op, background, compose, compose_slate_screen, hex_colour
 
 IDLE = "idle"
 PRE_ROLL = "pre_roll"
@@ -92,6 +92,16 @@ class Engine:
         if screen in SCREENS:
             self.cfg = replace(self.cfg, screen=screen)
             self.clock.cfg = self.cfg
+        # The slate screen's look too (a dimmed slate stays dim after a restart), unless the
+        # config file set its own.
+        saved = state.get("slate_screen")
+        if isinstance(saved, dict) and self.cfg.slate_screen == SlateScreenConfig():
+            try:
+                self.cfg = GeneratorConfig.from_dict(
+                    self.cfg.to_dict() | {"slate_screen": saved}, self.cfg.display_hz)
+                self.clock.cfg = self.cfg
+            except ValueError:
+                pass  # saved by another version: keep the defaults
         if self._slate_screen():
             self.clock.start()
         self.run_log: RunLog | None = None
@@ -148,7 +158,8 @@ class Engine:
             ops = compose_slate_screen(cfg, lay, count, time_of_day)
         else:
             ops = compose(cfg, lay, count, show_slate)
-        return {"width": lay.width, "height": lay.height, "bg": cfg.clock.bg,
+        bg = "#" + "".join(f"{c:02x}" for c in background(cfg))
+        return {"width": lay.width, "height": lay.height, "bg": bg,
                 "ops": [_op_json(op) for op in ops]}
 
     # ---- called from the render loop --------------------------------------------------
@@ -166,7 +177,7 @@ class Engine:
             # Time of day for people to read; the time code still counts displayed frames.
             self._time_of_day = self._now().strftime("%H:%M:%S")
             ops = compose_slate_screen(self.cfg, self.layout, self._shown, self._time_of_day)
-            return ops, hex_colour(self.cfg.clock.bg)
+            return ops, background(self.cfg)
         if self.cfg.slate.mode != "off" and self.state != RUNNING:
             self._refresh_slate()
         ops = compose(self.cfg, self.layout, self._shown, self._slate_visible())
@@ -276,6 +287,7 @@ class Engine:
         rate_changed = (cfg.rate_set, cfg.refresh_hz) != (self.cfg.rate_set, self.cfg.refresh_hz)
         start_changed = (cfg.start_mode, cfg.start_value) != (self.cfg.start_mode,
                                                               self.cfg.start_value)
+        old_slate_screen = self.cfg.slate_screen
         self.cfg = cfg
         self.clock.cfg = cfg
         if rate_changed:
@@ -288,6 +300,7 @@ class Engine:
                 self.clock.start()
             else:
                 self.clock.stop()
+        if screen_changed or cfg.slate_screen != old_slate_screen:
             self._save_state()
         self._config_rev += 1
         self._configure_ltc()
@@ -546,7 +559,8 @@ class Engine:
     def _save_state(self) -> None:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         state: dict[str, Any] = {"next_run_number": self.run_number,
-                                 "screen": self.cfg.screen}
+                                 "screen": self.cfg.screen,
+                                 "slate_screen": asdict(self.cfg.slate_screen)}
         if self.display and self.display.can_set and self._mode:
             state["display_mode"] = str(self._mode)
         self._state_path().write_text(json.dumps(state))

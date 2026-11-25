@@ -40,6 +40,8 @@ def test_partial_config_fills_defaults():
     {"screen": "tv"},
     {"slate_screen": {"clock_size": 0.9}},
     {"slate_screen": {"timecode": "yes"}},
+    {"slate_screen": {"brightness": 0.01}},
+    {"slate_screen": {"brightness": 1.5}},
     {"ltc": {"level_db": 6}},
     {"ltc": {"channel": "centre"}},
 ])

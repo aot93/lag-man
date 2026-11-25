@@ -70,8 +70,11 @@ class SlateScreenConfig:
     clock_size: float = 0.2
     timecode: bool = True
     tc_size: float = 0.09
-    # The control page's address under the slate fields.
+    # The network info (the control page's address) under the slate fields.
     network: bool = True
+    # Light output as a fraction of full, for dark shoots. Everything on the slate screen
+    # dims, background included; the latency test screen never does.
+    brightness: float = 1.0
 
 
 @dataclass
@@ -140,6 +143,7 @@ class GeneratorConfig:
         ss = self.slate_screen
         _between("slate_screen.clock_size", ss.clock_size, 0.04, 0.5)
         _between("slate_screen.tc_size", ss.tc_size, 0.02, 0.3)
+        _between("slate_screen.brightness", ss.brightness, 0.05, 1)
         lt = self.ltc
         _between("ltc.level_db", lt.level_db, -40, 0)
         _one_of("ltc.channel", lt.channel, LTC_CHANNELS)

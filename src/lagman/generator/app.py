@@ -24,7 +24,7 @@ from ..core.display import DisplayMode, SimulatedDisplay
 from ..core.framemon import REPEAT
 from ..core.slate import slate_lines
 from .engine import IDLE, CommandError, Engine
-from .scene import compose, compose_slate_screen, hex_colour
+from .scene import background, compose, compose_slate_screen
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -299,7 +299,7 @@ def snapshot(cfg: GeneratorConfig, args: argparse.Namespace) -> int:
         ops = compose(cfg, lay, count)
     for warning in lay.warnings:
         print(f"warning: {warning}", file=sys.stderr)
-    surface = SurfaceRenderer(w, h).draw(ops, hex_colour(cfg.clock.bg))
+    surface = SurfaceRenderer(w, h).draw(ops, background(cfg))
     pygame.image.save(surface, str(args.snapshot))
     return 0
 

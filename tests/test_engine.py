@@ -350,6 +350,53 @@ def test_slate_screen_is_remembered(tmp_path):
     assert eng3.cfg.screen == "test"
 
 
+def _colours(ops, bg):
+    return {bg} | {op.colour for op in ops}
+
+
+def test_slate_screen_brightness_dims_everything_on_it(tmp_path):
+    # For dark shoots: the slate screen's brightness scales its light output, background
+    # included. The latency test screen is never dimmed: its strip needs full contrast.
+    from lagman.generator.scene import dim
+    eng, loop = make(tmp_path)
+    _slate_screen(eng, loop)
+    ops, bg = eng.frame()
+    assert (255, 255, 255) in _colours(ops, bg)
+    cfg = eng.cfg.to_dict()
+    cfg["slate_screen"]["brightness"] = 0.25
+    cfg["clock"]["bg"] = "#204060"
+    call(eng, loop, "set_config", config=cfg)
+    ops, bg = eng.frame()
+    level = dim((255, 255, 255), 0.25)[0]
+    assert 0 < level < 255 and level == round(255 * 0.25 ** (1 / 2.2))  # light, not code
+    assert max(max(c) for c in _colours(ops, bg)) == level
+    assert bg == dim((0x20, 0x40, 0x60), 0.25)
+    preview = eng.preview()
+    assert preview["bg"] == "#{:02x}{:02x}{:02x}".format(*bg)
+    assert {op["colour"] for op in preview["ops"]} <= {
+        "#{:02x}{:02x}{:02x}".format(*o.colour) for o in ops}
+    cfg["screen"] = "test"
+    call(eng, loop, "set_config", config=cfg)
+    ops, bg = eng.frame()
+    assert (255, 255, 255) in _colours(ops, bg) and bg == (0x20, 0x40, 0x60)
+
+
+def test_slate_screen_settings_are_remembered(tmp_path):
+    # A dimmed slate with the network hidden comes back that way after a restart.
+    eng, loop = make(tmp_path)
+    _slate_screen(eng, loop)
+    cfg = eng.cfg.to_dict()
+    cfg["slate_screen"] |= {"brightness": 0.3, "network": False}
+    call(eng, loop, "set_config", config=cfg)
+    eng2, _ = make(tmp_path)
+    assert eng2.cfg.slate_screen.brightness == 0.3 and not eng2.cfg.slate_screen.network
+    # A config file's own slate screen settings win over the remembered ones.
+    from lagman.core.config import GeneratorConfig
+    own = GeneratorConfig.from_dict({"slate_screen": {"brightness": 0.8}})
+    eng3, _ = make(tmp_path, cfg=own)
+    assert eng3.cfg.slate_screen.brightness == 0.8
+
+
 def test_time_of_day_from_the_browser(tmp_path):
     eng, loop = make(tmp_path)  # system clock says 12:00:00
     cfg = eng.cfg.to_dict() | {"screen": "slate", "start_mode": "time_of_day"}

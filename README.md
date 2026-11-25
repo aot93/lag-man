@@ -91,10 +91,14 @@ test. Start it that way with `--screen slate` (on the Pi, in `LAGMAN_ARGS`).
   jam it again before a take that has to match. Turn it off for the clock and slate alone.
 - **Slate fields** always show on this screen; untick a field to hide it. A blank run
   number stays blank and the date shows without the time.
-- **Control page address:** shown under the fields unless turned off.
+- **Network info:** the control page address, shown under the fields unless turned off.
+- **Brightness:** dims the whole screen, background included, for dark shoots (5–100% of
+  full light output). The latency test screen is never dimmed: its strip needs full
+  contrast.
 - There are no runs or run logs on this screen. The screen chosen last comes back at the
-  next start; `--screen`, or a `--config` file that sets `screen`, overrides it. The slate
-  fields are not remembered between starts: save them as a preset and start with
+  next start, with its sizes, brightness and network info setting; `--screen`, or a
+  `--config` file that sets `screen` (or `slate_screen`), overrides them. The slate fields
+  are not remembered between starts: save them as a preset and start with
   `--config presets/<name>.json` to bring them back at boot.
 
 ## LTC output

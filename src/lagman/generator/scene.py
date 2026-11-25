@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..core import strip
 from ..core.config import GeneratorConfig
@@ -34,6 +34,20 @@ Op = Fill | Text
 def hex_colour(value: str) -> Colour:
     v = value.lstrip("#")
     return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
+
+
+def dim(colour: Colour, brightness: float) -> Colour:
+    """``colour`` at ``brightness`` times its light output (display gamma 2.2)."""
+    if brightness >= 1:
+        return colour
+    k = brightness ** (1 / 2.2)
+    return (round(colour[0] * k), round(colour[1] * k), round(colour[2] * k))
+
+
+def background(cfg: GeneratorConfig) -> Colour:
+    """The colour each frame is cleared to: dimmed with the rest of the slate screen."""
+    bg = hex_colour(cfg.clock.bg)
+    return dim(bg, cfg.slate_screen.brightness) if cfg.screen == "slate" else bg
 
 
 def compose(cfg: GeneratorConfig, layout: Layout, count: int, show_slate: bool = True,
@@ -72,6 +86,9 @@ def compose_slate_screen(cfg: GeneratorConfig, layout: SlateScreen, count: int,
         ops += [Text(lb.rect, lb.px, lb.text, fg) for lb in layout.labels[1:]]
     if layout.slate is not None:
         ops += _slate_ops(layout.slate, layout.slate_px, layout.slate_lines)
+    level = cfg.slate_screen.brightness
+    if level < 1:
+        ops = [replace(op, colour=dim(op.colour, level)) for op in ops]
     return ops
 
 
