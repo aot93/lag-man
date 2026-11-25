@@ -95,7 +95,8 @@ running a latency test.
 - The slate fields below, whatever the slate mode (each field's toggle still hides it). A
   blank run number stays blank, the date shows without the time, and the clock settings
   line is replaced by the time code's caption.
-- Optionally the network info (the control page's address), under the fields.
+- Optionally the network info (the control page's address), under the fields. It is on
+  again at every start, so turning it off cannot lock anyone out.
 - A brightness setting that dims everything on this screen, background included, for dark
   shoots. It scales light output (display gamma 2.2), down to 5%. The latency test screen
   is never dimmed.

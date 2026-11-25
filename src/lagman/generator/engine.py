@@ -93,12 +93,14 @@ class Engine:
             self.cfg = replace(self.cfg, screen=screen)
             self.clock.cfg = self.cfg
         # The slate screen's look too (a dimmed slate stays dim after a restart), unless the
-        # config file set its own.
+        # config file set its own. The network info always comes back on, so the control
+        # page can be found after a restart: turning it off must not lock anyone out.
         saved = state.get("slate_screen")
         if isinstance(saved, dict) and self.cfg.slate_screen == SlateScreenConfig():
             try:
                 self.cfg = GeneratorConfig.from_dict(
-                    self.cfg.to_dict() | {"slate_screen": saved}, self.cfg.display_hz)
+                    self.cfg.to_dict() | {"slate_screen": saved | {"network": True}},
+                    self.cfg.display_hz)
                 self.clock.cfg = self.cfg
             except ValueError:
                 pass  # saved by another version: keep the defaults

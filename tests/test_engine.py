@@ -382,14 +382,16 @@ def test_slate_screen_brightness_dims_everything_on_it(tmp_path):
 
 
 def test_slate_screen_settings_are_remembered(tmp_path):
-    # A dimmed slate with the network hidden comes back that way after a restart.
+    # A dimmed slate comes back dimmed after a restart. The network info always comes back
+    # on, so the control page can still be found.
     eng, loop = make(tmp_path)
     _slate_screen(eng, loop)
     cfg = eng.cfg.to_dict()
-    cfg["slate_screen"] |= {"brightness": 0.3, "network": False}
+    cfg["slate_screen"] |= {"brightness": 0.3, "network": False, "tc_size": 0.12}
     call(eng, loop, "set_config", config=cfg)
     eng2, _ = make(tmp_path)
-    assert eng2.cfg.slate_screen.brightness == 0.3 and not eng2.cfg.slate_screen.network
+    ss = eng2.cfg.slate_screen
+    assert (ss.brightness, ss.tc_size, ss.network) == (0.3, 0.12, True)
     # A config file's own slate screen settings win over the remembered ones.
     from lagman.core.config import GeneratorConfig
     own = GeneratorConfig.from_dict({"slate_screen": {"brightness": 0.8}})
